@@ -10,7 +10,7 @@ import * as log from './logbus.js'
 import * as reqlog from './reqstore.js'
 import { verifykey } from './apikey.js'
 import { listmap, resolvemodel } from './modelmap.js'
-import { plantools, unwrapcalls, rebridge, mutecalls, mutepush, aliasnames, unalias, namesnote, buildremap } from './toolbridge.js'
+import { plantools, unwrapcalls, gatecalls, argcalls, needmap, missnote, rebridge, mutecalls, mutepush, aliasnames, unalias, namesnote, buildremap } from './toolbridge.js'
 
 // 撞到不存在的工具时最多重问几次，防止模型死磕
 const maxtries = 2
@@ -158,11 +158,14 @@ async function translate(req) {
   let bridge = { extra: [], note: '', map: new Map(), active: false }
   let alias = new Map()
   let remap = new Map()
+  // 客户端工具改名后的完整清单，闸门核对必填参数时要用，得提到外层
+  let clientlist = []
 
   // 抑制模式与客户端有没有带 tools 无关，模板那 12 个一律不许被调用
   // 客户端自己的同名工具已经改名成 c_xxx 发上去了，所以这里拦原名字不会误伤它
-  // 入口优先：直通入口 /raw/v1 一律不抑制，默认入口跟着设置里的开关走
-  const muteon = req.__mute === undefined ? s.toolmute : req.__mute
+  // 入口决定抑制与否：默认入口 /v1 始终抑制，直通入口 /raw/v1 始终不抑制
+  // 两个入口都会显式带上 __mute，所以这里不看设置，设置只管 /raw/v1 开不开
+  const muteon = req.__mute === undefined ? true : req.__mute
   if (muteon) mute = new Set(tplnames)
 
   if (Array.isArray(req.tools) && req.tools.length) {
@@ -170,6 +173,7 @@ async function translate(req) {
       const taken = new Set(tplnames)
       const renamed = aliasnames(req.tools.filter((t) => t && t.function), taken)
       alias = renamed.map
+      clientlist = renamed.list
       // 客户端的工具能顶上被抑制的模板工具时，调用直接改派过去
       remap = buildremap(mute, renamed.list)
       if (remap.size) {
@@ -186,7 +190,14 @@ async function translate(req) {
   if (naming) msgs.unshift({ role: 'system', content: naming })
   rebridge(msgs, bridge.map, alias)
 
-  return { msgs, requested: req.model || '', params, map: bridge.map, bridged: bridge.active, mute, alias, remap, ns: req.__ns instanceof Map ? req.__ns : new Map() }
+  // 闸门看的是「拆桥前」的名字，也就是上游那一侧的写法：
+  // c_xxx 的直接工具、经桥转发后还原出来的真名、以及模板那 12 个
+  // 模板名字即使在抑制模式也先放行，交给 mutecalls 去吐提示，不在这里提前拦
+  const allow = new Set([...alias.keys(), ...bridge.map.keys(), ...tplnames])
+  // 必填参数表按出站那一侧的名字算：改名后的 c_xxx、模板原名、桥里的直接工具
+  // 桥里被收走的那些本轮根本发不出去，只在拆桥后才出现，所以用改名前的清单补一份
+  const need = needmap([base, bridge.extra, clientlist])
+  return { msgs, requested: req.model || '', params, map: bridge.map, bridged: bridge.active, mute, alias, remap, allow, need, ns: req.__ns instanceof Map ? req.__ns : new Map() }
 }
 
 async function collect(res) {
@@ -450,14 +461,20 @@ async function chat(req, res) {
     }
     r = await collect(up)
     // 先按上游名字抑制，再还原改名，否则客户端的 c_read 会被还原成 read 而误杀
-    const raw = mutecalls(unwrapcalls(r.toolcalls, t.map), t.mute, t.remap)
-    picked = { calls: unalias(raw.calls, t.alias), dropped: raw.dropped, names: raw.names }
+    const unwrapped = unwrapcalls(r.toolcalls, t.map, t.allow)
+    const gated = gatecalls(unwrapped.calls, t.allow)
+    const raw = mutecalls(gated.calls, t.mute, t.remap)
+    // 参数闸门排在抑制之后：被抑制的模板工具该报不可用，不该报缺参数
+    const arged = argcalls(raw.calls, t.need)
+    const dropped = unwrapped.dropped + gated.dropped + raw.dropped + arged.dropped
+    const names = [...unwrapped.names, ...gated.names, ...raw.names, ...arged.names]
+    picked = { calls: unalias(arged.calls, t.alias), dropped, names, invalid: badnames(unwrapped, gated), missing: [...(unwrapped.argless || []), ...(arged.missing || [])] }
     // 全部被吞掉、且这一轮没正文，才值得重问；有正文或还有其他可用结果就别重来
     if (picked.dropped > 0 && !picked.calls.length && !r.text) {
       if (attempt < maxtries) {
         attempt++
         log.info(`工具抑制：吞掉 ${picked.dropped} 个调用（${picked.names.join(',')}），第 ${attempt} 次重申`)
-        t.msgs = [...t.msgs, { role: 'system', content: mutepush(attempt, hintfor(t.alias, picked.names, t.remap)) }]
+        t.msgs = [...t.msgs, { role: 'system', content: mutepush(attempt, hintfor(t.alias, picked.names, t.remap, picked.invalid, picked.missing), picked.missing && picked.missing.length) }]
         continue
       }
       if (!forced) {
@@ -505,10 +522,36 @@ function forcelast(t) {
   t.msgs = [...t.msgs, { role: 'system', content: forcemsg }]
 }
 
+// 闸门拦下的名字里，参数不全的那些名字是对的，不算「名字不存在」
+// 两类别混在一起，否则提示会自相矛盾：一边说缺参数，一边说这工具根本不存在
+function badnames(unwrapped, gated) {
+  const soft = new Set()
+  for (const one of unwrapped.argless || []) soft.add(one.name)
+  const list = [...(unwrapped.names || []), ...(gated.names || [])]
+  return list.filter((n) => !soft.has(n))
+}
+
 // 被吞掉的恰好是客户端也有同名工具时，告诉模型正确的替代名字
-function hintfor(alias, names, remap) {
+function hintfor(alias, names, remap, invalid, missing) {
+  const bad = new Set(invalid || [])
   const tips = []
+  const unknown = []
+  // 名字为空、桥没开这类占位符不是名字本身，单独说一句就够
+  let nameless = false
   for (const n of names) {
+    if (!n) {
+      nameless = true
+      continue
+    }
+    // 闸门拦下的名字在 tools 列表里根本不存在，别去猜它想调什么，直接让它照抄
+    if (bad.has(n)) {
+      if (n === '（无名）' || n === '（桥未启用）') {
+        nameless = true
+        continue
+      }
+      unknown.push(n)
+      continue
+    }
     const moved = remap && remap.get(n)
     if (moved) {
       tips.push(`${n} 可以改用 ${moved.name} 用命令实现`)
@@ -516,8 +559,22 @@ function hintfor(alias, names, remap) {
     }
     for (const [up, real] of alias) if (real === n) tips.push(`${n} 应该写成 ${up}`)
   }
-  const uniq = [...new Set(tips)]
-  return uniq.length ? `可以改用：${uniq.join('；')}。` : ''
+  const parts = []
+  if (nameless) parts.push('有调用没把工具名写对，名字要原样照抄 tools 列表里的。')
+  // 参数缺键是另一种错，得说清缺哪几个，否则模型下一轮还会漏
+  const lack = missnote(missing)
+  if (lack) parts.push(lack)
+  if (unknown.length) parts.push(`名字要原样照抄 tools 列表里的，${[...new Set(unknown)].slice(0, 3).join('、')} 根本不存在。`)
+  const uniq = [...new Set(tips)].slice(0, 4)
+  if (uniq.length) parts.push(`可以改用：${uniq.join('；')}。`)
+  return parts.join('')
+}
+
+// 名字可能是分段到的，第一段只是某个合法名的前缀，这种不能当成错名字拦掉
+function knownname(one, allow) {
+  if (allow.has(one)) return true
+  for (const n of allow) if (n.startsWith(one)) return true
+  return false
 }
 
 // 全部被吞掉时不能给客户端留个空气泡，给一句中性的话，不点任何工具名
@@ -556,7 +613,6 @@ async function streamchat(res, t, open, model, includeusage) {
 
   // 工具桥开着时要攒齐 tool_calls 才能拆回真名，抑制开着时要攒齐才能吞
   const holdcalls = Boolean((map && map.size) || (mute && mute.size))
-  const seen = new Set()
 
   while (true) {
     let up
@@ -582,6 +638,12 @@ async function streamchat(res, t, open, model, includeusage) {
     }
 
     const held = new Map()
+    // 边收边发那条路也要记这一轮见过哪些 index，重问时得清空
+    const seen = new Set()
+    const badidx = new Set()
+    // 名字比参数晚到时先把这段攒着，等真名字到了再一起发
+    const early = new Map()
+    const latebad = []
     let usage0 = null
     let finish0 = null
     let sawtool0 = false
@@ -616,14 +678,33 @@ async function streamchat(res, t, open, model, includeusage) {
             for (const tc of delta.tool_calls || []) {
               const i = tc.index || 0
               const fn = tc.function || {}
+              if (badidx.has(i)) continue
               if (!seen.has(i)) {
+                const buf = early.get(i) || { id: null, name: '', args: '' }
+                if (tc.id) buf.id = tc.id
+                if (fn.name) buf.name += fn.name
+                if (fn.arguments) buf.args += fn.arguments
+                const one = buf.name
+                // 名字还没收全就先攒着：空名字发出去，后面那个真名字就绕过闸门了
+                // 只是某个合法名的前缀也一样，等拼完再发，顺便把改名还原掉
+                if (!one || (t.allow && t.allow.size && !t.allow.has(one) && knownname(one, t.allow))) {
+                  early.set(i, buf)
+                  continue
+                }
+                early.delete(i)
+                // 这条路是边收边发，名字发错了收不回来，所以发之前就得拦住
+                if (t.allow && t.allow.size && !t.allow.has(one)) {
+                  badidx.add(i)
+                  latebad.push(one.slice(0, 40))
+                  continue
+                }
                 seen.add(i)
                 sawtool0 = true
                 parts.push({
                   index: i,
-                  id: tc.id || callid(),
+                  id: buf.id || callid(),
                   type: 'function',
-                  function: { name: fn.name || '', arguments: fn.arguments || '' },
+                  function: { name: alias.get(one) || one, arguments: buf.args },
                 })
               } else {
                 const part = { index: i, function: {} }
@@ -649,14 +730,33 @@ async function streamchat(res, t, open, model, includeusage) {
     let calls = []
     let dropped = 0
     let names = []
+    let invalid = []
+    let missing = []
     if (held.size) {
       calls = [...held.keys()].sort((a, b) => a - b).map((i) => held.get(i))
       for (const c of calls) if (!c.id) c.id = callid()
       // 先按上游名字抑制，再还原改名，否则客户端的 c_read 会被还原成 read 而误杀
-      const raw = mutecalls(unwrapcalls(calls, map), mute, t.remap)
-      calls = unalias(raw.calls, alias)
-      dropped = raw.dropped
-      names = raw.names
+      const unwrapped = unwrapcalls(calls, map, t.allow)
+      const gated = gatecalls(unwrapped.calls, t.allow)
+      const raw = mutecalls(gated.calls, mute, t.remap)
+      // 参数闸门排在抑制之后：被抑制的模板工具该报不可用，不该报缺参数
+      const arged = argcalls(raw.calls, t.need)
+      calls = unalias(arged.calls, alias)
+      dropped = unwrapped.dropped + gated.dropped + raw.dropped + arged.dropped
+      names = [...unwrapped.names, ...gated.names, ...raw.names, ...arged.names]
+      invalid = badnames(unwrapped, gated)
+      missing = [...(unwrapped.argless || []), ...(arged.missing || [])]
+    }
+    if (latebad.length) {
+      dropped += latebad.length
+      names = [...names, ...latebad]
+      invalid = [...invalid, ...latebad]
+    }
+    // 名字从头到尾没到，这轮就当没调过，让它重来
+    for (const buf of early.values()) {
+      if (!buf.id && !buf.args) continue
+      dropped++
+      names.push('')
     }
 
     // 撞到不存在的工具就当成没发生过，重新问一次，语气一轮比一轮重
@@ -665,7 +765,7 @@ async function streamchat(res, t, open, model, includeusage) {
       if (attempt < maxtries) {
         attempt++
         log.info(`工具抑制：吞掉 ${dropped} 个调用（${names.join(',')}），第 ${attempt} 次重申`)
-        t.msgs = [...t.msgs, { role: 'system', content: mutepush(attempt, hintfor(alias, names, t.remap)) }]
+        t.msgs = [...t.msgs, { role: 'system', content: mutepush(attempt, hintfor(alias, names, t.remap, invalid, missing), missing && missing.length) }]
         continue
       }
       if (!forced) {
@@ -1100,13 +1200,19 @@ async function responses(req, res) {
       throw err
     }
     r = await collect(up)
-    const raw = mutecalls(unwrapcalls(r.toolcalls, t.map), t.mute, t.remap)
-    picked = { calls: unalias(raw.calls, t.alias), dropped: raw.dropped, names: raw.names }
+    const unwrapped = unwrapcalls(r.toolcalls, t.map, t.allow)
+    const gated = gatecalls(unwrapped.calls, t.allow)
+    const raw = mutecalls(gated.calls, t.mute, t.remap)
+    // 参数闸门排在抑制之后：被抑制的模板工具该报不可用，不该报缺参数
+    const arged = argcalls(raw.calls, t.need)
+    const dropped = unwrapped.dropped + gated.dropped + raw.dropped + arged.dropped
+    const names = [...unwrapped.names, ...gated.names, ...raw.names, ...arged.names]
+    picked = { calls: unalias(arged.calls, t.alias), dropped, names, invalid: badnames(unwrapped, gated), missing: [...(unwrapped.argless || []), ...(arged.missing || [])] }
     if (picked.dropped > 0 && !picked.calls.length && !r.text) {
       if (attempt < maxtries) {
         attempt++
         log.info(`工具抑制：吞掉 ${picked.dropped} 个调用（${picked.names.join(',')}），第 ${attempt} 次重申`)
-        t.msgs = [...t.msgs, { role: 'system', content: mutepush(attempt, hintfor(t.alias, picked.names, t.remap)) }]
+        t.msgs = [...t.msgs, { role: 'system', content: mutepush(attempt, hintfor(t.alias, picked.names, t.remap, picked.invalid, picked.missing), picked.missing && picked.missing.length) }]
         continue
       }
       if (!forced) {
@@ -1241,13 +1347,21 @@ async function streamresponse(res, t, open, env) {
     let calls = []
     let dropped = 0
     let names = []
+    let invalid = []
+    let missing = []
     if (held.size) {
       calls = [...held.keys()].sort((a, b) => a - b).map((i) => held.get(i))
       for (const call of calls) if (!call.id) call.id = callid()
-      const raw = mutecalls(unwrapcalls(calls, map), mute, t.remap)
-      calls = unalias(raw.calls, alias)
-      dropped = raw.dropped
-      names = raw.names
+      const unwrapped = unwrapcalls(calls, map, t.allow)
+      const gated = gatecalls(unwrapped.calls, t.allow)
+      const raw = mutecalls(gated.calls, mute, t.remap)
+      // 参数闸门排在抑制之后：被抑制的模板工具该报不可用，不该报缺参数
+      const arged = argcalls(raw.calls, t.need)
+      calls = unalias(arged.calls, alias)
+      dropped = unwrapped.dropped + gated.dropped + raw.dropped + arged.dropped
+      names = [...unwrapped.names, ...gated.names, ...raw.names, ...arged.names]
+      invalid = badnames(unwrapped, gated)
+      missing = [...(unwrapped.argless || []), ...(arged.missing || [])]
     }
 
     // 这一轮还没吐正文才能整轮重问，吐过了就只能就地收尾
@@ -1255,7 +1369,7 @@ async function streamresponse(res, t, open, env) {
       if (attempt < maxtries) {
         attempt++
         log.info(`工具抑制：吞掉 ${dropped} 个调用（${names.join(',')}），第 ${attempt} 次重申`)
-        t.msgs = [...t.msgs, { role: 'system', content: mutepush(attempt, hintfor(alias, names, t.remap)) }]
+        t.msgs = [...t.msgs, { role: 'system', content: mutepush(attempt, hintfor(alias, names, t.remap, invalid, missing), missing && missing.length) }]
         continue
       }
       if (!forced) {

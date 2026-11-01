@@ -10,8 +10,10 @@ import * as log from './logbus.js'
 const here = path.dirname(fileURLToPath(import.meta.url))
 const template = path.join(here, '..', 'res', 'ocask-body.json')
 
-export const endpoint = 'https://opencode.ai/inference/openai/v1/chat/completions'
-export const modelsendpoint = 'https://opencode.ai/inference/v1/models'
+// 上游地址允许用环境变量改，端到端自测时指向本地桩，线上不设就还是官方地址
+const base = String(process.env.upstream || 'https://opencode.ai/inference').replace(/\/+$/, '')
+export const endpoint = `${base}/openai/v1/chat/completions`
+export const modelsendpoint = `${base}/v1/models`
 // 门禁按 user-agent 认客户端，带 latest 段的旧写法会被当成非官方客户端直接 429
 // 只认 opencode/<版本> 或 opencode/<版本>/<客户端>，改动前先用 /raw/v1 实发一次确认
 export const useragent = 'opencode/2.0.22/cli'

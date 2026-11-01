@@ -28,7 +28,6 @@ export const spec = {
   tools: { type: 'boolean' },
   toolbridge: { type: 'boolean' },
   toolbudget: { type: 'number', min: 12, max: 64, step: 1 },
-  toolmute: { type: 'boolean' },
   rawentry: { type: 'boolean' },
   responses: { type: 'boolean' },
   statedir: { type: 'string', max: 300, optional: true },
@@ -57,7 +56,6 @@ const fallback = {
   tools: true,
   toolbridge: true,
   toolbudget: 15,
-  toolmute: false,
   rawentry: true,
   responses: true,
   // 空字符串表示用默认：状态目录 srv/.state，数据库 127.0.0.1:3306

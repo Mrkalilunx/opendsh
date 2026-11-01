@@ -154,36 +154,134 @@ function parseargs(raw) {
 }
 
 // 把桥调用拆回真正的工具名，参数原样序列化交给客户端
-export function unwrapcalls(calls, map) {
-  if (!map || !map.size || !Array.isArray(calls)) return calls
+// 名字不是清单里的字符串就直接丢掉，别把假名流出去
+// 拆出来的模板名不在这里特判：它和直接调模板工具走同一条路，交给 mutecalls 统一抑制
+export function unwrapcalls(calls, map, allow) {
+  if (!Array.isArray(calls)) return { calls: [], dropped: 0, names: [], argless: [] }
   const out = []
+  const names = []
+  const argless = []
   for (const call of calls) {
     const name = call && call.function && call.function.name
     if (name !== bridgename) {
       out.push(call)
       continue
     }
+    if (!map || !map.size) {
+      // 桥没开却调了桥，名字对不上任何工具，丢掉重问
+      names.push('（桥未启用）')
+      continue
+    }
     const args = parseargs(call.function.arguments)
-    const real = String(args.name || '')
-    const target = map.get(real)
-    if (!target) {
-      // 名字不在清单里，退化成一次普通调用，让客户端自己决定怎么处理
-      out.push({
-        ...call,
-        function: { name: real || bridgename, arguments: JSON.stringify(args.arguments || {}) },
-      })
+    // 模型偶尔把 name 写成对象，String() 会得到 [object Object]，这里只认字符串
+    const real = typeof args.name === 'string' ? args.name : ''
+    // 名字是桥内工具就拆开，是直接发上去的工具就放行，其余丢掉重问
+    const known = map.has(real) || (allow && allow.has(real))
+    if (!known) {
+      names.push(real || '（无名）')
+      continue
+    }
+    // 参数可能是对象，也可能被模型再套一层字符串；两种都摊平成对象
+    // 摊不出来的直接判不合格，别把空参数发给客户端换一句 Missing key
+    const raw = args.arguments
+    const inner = typeof raw === 'string' ? parseargs(raw) : raw
+    if (!inner || typeof inner !== 'object' || Array.isArray(inner)) {
+      names.push(real)
+      argless.push({ name: real, missing: ['（整份参数）'] })
       continue
     }
     out.push({
       id: call.id,
       type: 'function',
-      function: { name: real, arguments: JSON.stringify(args.arguments || {}) },
+      function: { name: real, arguments: JSON.stringify(inner) },
     })
   }
-  return out
+  return { calls: out, dropped: names.length, names, argless }
+}
+
+// 出站闸门之一：名字必须真在客户端那份 tools 里
+// 上游偶尔把名字写成对象、写成半截 JSON，或者编一个不存在的名字
+// 这些原样发下去客户端只会报 No tool named，所以在这层拦掉让上游重问
+export function gatecalls(calls, allow) {
+  if (!allow || !allow.size || !Array.isArray(calls)) return { calls, dropped: 0, names: [] }
+  const kept = []
+  const names = []
+  for (const call of calls) {
+    const fn = (call && call.function) || {}
+    const name = fn.name
+    if (typeof name === 'string' && name && allow.has(name)) {
+      kept.push(call)
+      continue
+    }
+    names.push(typeof name === 'string' && name ? name.slice(0, 40) : '（无名）')
+  }
+  return { calls: kept, dropped: names.length, names }
+}
+
+// 出站闸门之二：必填参数不能缺
+// 缺键时客户端只会回一句 Missing key，白跑一轮，不如当场拦下让上游补齐
+// 必须排在抑制之后：被抑制的模板工具该报「不可用」，不该报「缺参数」
+export function argcalls(calls, need) {
+  if (!need || !need.size || !Array.isArray(calls)) return { calls, dropped: 0, names: [], missing: [] }
+  const kept = []
+  const names = []
+  const missing = []
+  for (const call of calls) {
+    const fn = (call && call.function) || {}
+    const name = fn.name
+    const keys = typeof name === 'string' ? need.get(name) : null
+    if (!keys || !keys.length) {
+      kept.push(call)
+      continue
+    }
+    const args = parseargs(fn.arguments)
+    // 只认 undefined，null 和空字符串是模型自己给的值，不算漏
+    const gone = keys.filter((one) => args[one] === undefined)
+    if (gone.length) {
+      names.push(name)
+      missing.push({ name, keys: gone })
+      continue
+    }
+    kept.push(call)
+  }
+  return { calls: kept, dropped: names.length, names, missing }
+}
+
+// 缺必填键时把缺了哪几个直接报出来，模型下一轮就能照着补
+export function missnote(missing) {
+  if (!Array.isArray(missing) || !missing.length) return ''
+  const parts = []
+  for (const one of missing.slice(0, 3)) {
+    const keys = (one.keys || []).filter((k) => k !== '（整份参数）')
+    if (!keys.length) {
+      // 整份参数都没给，说缺哪个键没意义，直接点名
+      parts.push(`${one.name} 没给参数`)
+      continue
+    }
+    parts.push(`${one.name} 少了必填参数 ${keys.join('、')}`)
+  }
+  return `${parts.join('；')}。参数键要照 tools 里的定义写。`
 }
 
 export { bridgename }
+
+// 每个工具名对应的必填参数键，出站闸门拿它核对参数有没有缺
+// 桥自己那个转发工具不查：它的参数在 unwrapcalls 里已经摊平过一遍
+export function needmap(lists) {
+  const out = new Map()
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue
+    for (const t of list) {
+      const fn = (t && t.function) || {}
+      const name = fn.name
+      if (!name || name === bridgename) continue
+      const params = fn.parameters || {}
+      const keys = Array.isArray(params.required) ? params.required.filter((one) => typeof one === 'string') : []
+      if (keys.length) out.set(name, keys)
+    }
+  }
+  return out
+}
 
 // 模板那 12 个工具必须发出去，否则上游直接报错
 // 但发出去不等于要让它存在，这里把对它们的调用直接吞掉
@@ -327,8 +425,9 @@ export function mutecalls(calls, mute, remap) {
 // 只否定刚才那一次尝试，绝不波及同类或同名的其他可用工具
 // 用陈述事实的口吻，不用命令口吻，否则模型会把它当成可疑的指令注入并公开对抗
 // 客户端真有同名工具时会被改成 c_xxx，这里直接把正确的名字告诉它
-export function mutepush(count, hint) {
-  const base = '刚才那次调用没有生效：那个工具在本轮不可用。'
+// 参数缺键是另一类错，措辞要跟「工具不可用」分开，否则模型会以为工具本身没了
+export function mutepush(count, hint, argless) {
+  const base = argless ? '刚才那次调用没有生效：参数不全。' : '刚才那次调用没有生效：那个工具在本轮不可用。'
   const tip = hint ? ` ${hint}` : ''
   if (count <= 1) return base + tip
   if (count === 2) return base + tip + '重复同一次调用仍然不会生效，换个工具或换个名字。'
