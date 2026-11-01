@@ -1,0 +1,8 @@
+{
+  "name": "dsh",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun serve.js"
+  }
+}

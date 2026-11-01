@@ -1,0 +1,16 @@
+# 运行时状态：接口密钥、数据库密码、人设、模型映射都落在这里，绝不入库
+srv/.state/
+
+# 依赖目录
+node_modules/
+
+# 同目录下另外两套独立项目，不属于本仓库
+qq/
+astrbot/
+astrbotpatch/
+
+# 本机配置与临时产物
+.opencode/
+*.log
+*.tmp
+.DS_Store

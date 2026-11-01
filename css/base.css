@@ -1,0 +1,128 @@
+/* 基础层：重置、设计变量、页面底色 */
+
+:root {
+  --accent-rgb: 43, 43, 255;
+  --bg: #f7f8ff;
+  --card: #ffffff;
+  --fg: #1b1e39;
+  --fg-dim: #6f7392;
+  --fg-soft: #33365a;
+  --blue: rgb(var(--accent-rgb));
+  --line: rgba(var(--accent-rgb), 0.2);
+  --line-strong: rgba(var(--accent-rgb), 0.55);
+  --shift: 0.75rem 0.75rem 2px 1px rgba(var(--accent-rgb), 0.2);
+  --shift-flip: -0.75rem 0.75rem 2px -1px rgba(var(--accent-rgb), 0.2);
+  --tint-1: color-mix(in srgb, var(--blue) 4%, #fff);
+  --tint-2: color-mix(in srgb, var(--blue) 9%, #fff);
+  --tint-3: color-mix(in srgb, var(--blue) 18%, #fff);
+  --wash: color-mix(in srgb, var(--blue) 5%, #f2f2f6);
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans SC", sans-serif;
+}
+
+/* 主题色只换强调色与底色，白卡和投影结构保持不变 */
+html[data-theme="blue"] {
+  --accent-rgb: 43, 43, 255;
+  --bg: #f7f8ff;
+}
+
+html[data-theme="violet"] {
+  --accent-rgb: 109, 40, 217;
+  --bg: #f8f7ff;
+}
+
+html[data-theme="cyan"] {
+  --accent-rgb: 8, 132, 168;
+  --bg: #f4fafc;
+}
+
+html[data-theme="green"] {
+  --accent-rgb: 5, 140, 98;
+  --bg: #f4faf7;
+}
+
+html[data-theme="amber"] {
+  --accent-rgb: 176, 82, 8;
+  --bg: #fdf8f1;
+}
+
+html[data-theme="rose"] {
+  --accent-rgb: 190, 24, 93;
+  --bg: #fdf4f8;
+}
+
+html[data-theme="slate"] {
+  --accent-rgb: 51, 65, 85;
+  --bg: #f5f6f8;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  /* 根字号跟着屏幕宽度浮动，全站 rem 尺寸一起缩放
+     窄屏偏小、宽屏偏大，所有页面的字、间距、卡片宽度都自动适配，不用逐条写媒体查询
+     左右边界都是 rem，用户系统里调大字号时整个站点仍然跟着放大 */
+  font-size: clamp(0.9375rem, 0.875rem + 0.35vw, 1.0625rem);
+  min-height: 100%;
+}
+
+body {
+  min-height: 100%;
+  margin: 0;
+  font-family: var(--font);
+  line-height: 1.6;
+  color: var(--fg);
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  /* 页面留白按视口走：窄屏收紧、宽屏放开，不再写死一套固定值 */
+  padding: clamp(1rem, 3.4vw, 1.75rem) clamp(0.75rem, 4vw, 1.25rem) clamp(1.75rem, 6vw, 4rem);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 聊天页：整页高度锁死在可视区，上下留白也按视口比例走，不用固定像素
+   键盘弹出时 dvh 变小，外壳跟着矮，输入框就贴着键盘了 */
+html[data-view="chat"] body {
+  height: 100dvh;
+  min-height: 100dvh;
+  padding-top: clamp(0.5rem, 2.2dvh, 1.6rem);
+  padding-bottom: clamp(0.5rem, 1.8dvh, 1.4rem);
+  overflow: hidden;
+}
+
+img {
+  max-width: 100%;
+  display: block;
+}
+
+/* 统一 hidden：避免被 display:flex 之类的规则压掉 */
+[hidden] {
+  display: none !important;
+}
+
+:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 0.1875rem;
+}
+
+/* 手指点按不显示焦点环，键盘导航仍保留 */
+button:focus:not(:focus-visible),
+a:focus:not(:focus-visible),
+summary:focus:not(:focus-visible) {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.001ms !important;
+    animation-duration: 0.001ms !important;
+  }
+}

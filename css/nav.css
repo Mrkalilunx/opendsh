@@ -1,0 +1,170 @@
+/* 布局层：外壳、顶栏、页签、视图容器 */
+
+.shell {
+  width: min(42.5rem, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  /* 页签一律留在这一行：窄屏让 tabs 自己横向滑，绝不整体掉到第二行 */
+  flex-wrap: nowrap;
+  padding: 0.5625rem 0.75rem;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 0.3125rem;
+  box-shadow: 0.5rem 0.5rem 2px rgba(var(--accent-rgb), 0.14);
+}
+
+.brand {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 800;
+  color: var(--blue);
+  text-decoration: none;
+  padding: 2px 0.25rem;
+}
+
+.brand .logo {
+  width: 1.375rem;
+  height: 1.375rem;
+  color: var(--blue);
+}
+
+/* 5 个页签在窄屏放不全，纵向绝不换行，放不下就横向滑
+   margin-left:auto 让宽屏时仍靠右，跟原来的 space-between 观感一致 */
+.tabs {
+  position: relative;
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+  gap: 0.25rem;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+/* 页签底块单独抽出来做成一块会滑的指示器
+   切换页面时它带位移过渡滑到新页签，不再是一灭一亮地硬切 */
+.tabglider {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: var(--tint-2);
+  border: 1px solid var(--line-strong);
+  border-radius: 0.1875rem;
+  box-shadow: 0.1875rem 0.1875rem 1px rgba(var(--accent-rgb), 0.12);
+}
+
+/* 首帧只定位不滑动，位置落定后才挂上过渡，避免从左上角飞过来 */
+.tabs.tabglider-on .tabglider {
+  transition:
+    transform 260ms cubic-bezier(0.32, 0.72, 0, 1),
+    width 260ms cubic-bezier(0.32, 0.72, 0, 1),
+    height 200ms ease;
+}
+
+.tab {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  padding: 0.375rem 0.4375rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--fg-dim);
+  text-decoration: none;
+  border: 1px solid transparent;
+  border-radius: 0.1875rem;
+  transition: color 0.18s;
+}
+
+/* 悬停只在没选中的页签上描边，选中的那格由指示器负责边框 */
+.tab:hover:not([aria-current="page"]) {
+  color: var(--blue);
+  border-color: var(--line);
+}
+
+/* 选中态只留文字颜色，底块和投影交给滑动的指示器 */
+.tab[aria-current="page"] {
+  color: var(--blue);
+}
+
+.deck {
+  display: flex;
+  justify-content: center;
+}
+
+/* 聊天页：外壳和面板逐层撑满 body 剩下的高度
+   键盘弹出时 body 变矮，这一串容器跟着矮，输入框就贴到键盘上沿
+   只有聊天页这样撑，其它页保持内容多高就多高 */
+html[data-view="chat"] .shell,
+html[data-view="chat"] .deck,
+html[data-view="chat"] .view,
+html[data-view="chat"] .chat {
+  flex: 1;
+  min-height: 0;
+}
+
+/* 聊天页把外壳的纵向间距收窄，省下的高度都给对话区 */
+html[data-view="chat"] .shell {
+  gap: clamp(0.5rem, 1.6dvh, 1.25rem);
+}
+
+.view {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+/* 首帧就按 html[data-view] 决定显示哪一页：路由要等脚本加载完才跑，
+   不先挡一层的话刷新 #/settings 会先画主页再切走，整页闪一下 */
+html[data-view="home"] .view:not([data-view="home"]),
+html[data-view="chat"] .view:not([data-view="chat"]),
+html[data-view="settings"] .view:not([data-view="settings"]),
+html[data-view="logs"] .view:not([data-view="logs"]),
+html[data-view="usage"] .view:not([data-view="usage"]) {
+  display: none;
+}
+
+/* 当前页身上还带着 hidden 属性（写在 HTML 里给路由用），
+   首帧路由还没跑，作者样式优先于浏览器默认的 [hidden]，这里直接放开 */
+html[data-view="home"] .view[data-view="home"],
+html[data-view="chat"] .view[data-view="chat"],
+html[data-view="settings"] .view[data-view="settings"],
+html[data-view="logs"] .view[data-view="logs"],
+html[data-view="usage"] .view[data-view="usage"] {
+  display: flex;
+}
+
+/* 页签文字也照 data-view 先亮，别等路由写 aria-current 才有选中色 */
+html[data-view="home"] .tab[data-view="home"],
+html[data-view="chat"] .tab[data-view="chat"],
+html[data-view="settings"] .tab[data-view="settings"],
+html[data-view="logs"] .tab[data-view="logs"],
+html[data-view="usage"] .tab[data-view="usage"] {
+  color: var(--blue);
+}
+
+.view-stack {
+  flex-direction: column;
+  align-items: center;
+  gap: 0.875rem;
+}
+

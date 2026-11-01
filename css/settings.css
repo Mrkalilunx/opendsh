@@ -1,0 +1,818 @@
+/* 设置页：表单、输入框、开关 */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  margin-top: 1rem;
+}
+
+.form-tight {
+  gap: 0.5625rem;
+  margin-top: 0.75rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3125rem;
+}
+
+.field-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 2px 0;
+}
+
+.field-key {
+  font-size: 0.656rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+
+.field-input {
+  font: inherit;
+  font-size: 0.844rem;
+  padding: 0.5rem 0.6875rem;
+  color: var(--fg);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+  transition: all 0.18s;
+}
+
+.field-input:hover {
+  border-color: var(--line-strong);
+}
+
+.field-input:focus {
+  outline: none;
+  border-color: var(--blue);
+  box-shadow: 0.1875rem 0.1875rem 1px rgba(var(--accent-rgb), 0.14);
+}
+
+textarea.field-input {
+  min-height: 4.625rem;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.field-hint {
+  font-size: 0.6875rem;
+  color: var(--fg-dim);
+}
+
+/* 路径读不到或写不进去时，提示行直接标红，不用等保存才知道 */
+.field-hint[data-tone="bad"] {
+  color: #c81e45;
+}
+
+.panel-state:empty {
+  display: none;
+}
+
+
+/* 列表窗口只露三行，行高 36（22 圆钮 + 内外边距），三行 108 加两道 6 间隙 */
+/* 入口对照：两条路各管一拨客户端，摆成两行比一段说明好读 */
+.entrybox {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0.375rem 0 0.125rem;
+}
+
+.entryrow {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.375rem 0.5rem;
+  font-size: 0.6875rem;
+  background: var(--tint-1);
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+}
+
+.entrypath {
+  flex: none;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-weight: 700;
+  color: var(--blue);
+}
+
+.entrywho {
+  flex: none;
+  padding: 0 0.375rem;
+  font-weight: 700;
+  color: var(--fg-dim);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 62.5rem;
+}
+
+.entrynote {
+  min-width: 0;
+  color: var(--fg-dim);
+}
+
+.keylist {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0 2px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  /* 三行窗口：按字号缩放，同时按视口比例封顶，矮屏不会被窗口撑爆 */
+  max-height: min(7.625rem, 26dvh);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(var(--accent-rgb), 0.3) transparent;
+}
+
+.keylist::-webkit-scrollbar {
+  width: 0.375rem;
+}
+
+.keylist::-webkit-scrollbar-thumb {
+  border-radius: 0.1875rem;
+  background: rgba(var(--accent-rgb), 0.28);
+}
+
+.keyrow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: nowrap;
+  padding: 0.375rem 0.5rem 0.375rem 0.625rem;
+  background: var(--tint-1);
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+}
+
+.keytext {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.6875rem;
+  line-height: 1.6;
+  color: var(--fg-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: color 0.16s;
+}
+
+.keytext:hover {
+  color: var(--blue);
+}
+
+.keyact {
+  flex: none;
+  width: 1.375rem;
+  height: 1.375rem;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  font: inherit;
+  font-size: 0.875rem;
+  line-height: 1;
+  font-weight: 700;
+  color: var(--blue);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.16s;
+}
+
+.keyact svg {
+  display: block;
+  width: 0.8125rem;
+  height: 0.8125rem;
+}
+
+.keyact:hover {
+  border-color: var(--line-strong);
+  box-shadow: 2px 2px 1px rgba(var(--accent-rgb), 0.12);
+}
+
+.keyghost {
+  justify-content: space-between;
+  background: transparent;
+  border-style: dashed;
+  color: var(--fg-dim);
+  cursor: pointer;
+  transition: all 0.16s;
+}
+
+.keyghost:hover {
+  color: var(--blue);
+  border-color: var(--line-strong);
+}
+
+.keyaddtext {
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.keyconfirm {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.75rem;
+  color: #c81e45;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.btn-danger {
+  color: #c81e45;
+  border-color: rgba(200, 30, 69, 0.35);
+}
+
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5625rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.switch input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+/* 开关整块按字号缩放：轨道、圆钮、行程全用 rem 和百分比算，不用写死像素 */
+.switch-track {
+  position: relative;
+  width: 2.75rem;
+  height: 1.5rem;
+  border-radius: 50em;
+  background: var(--wash);
+  border: 1px solid var(--line);
+  transition: all 0.18s;
+}
+
+.switch-knob {
+  position: absolute;
+  top: 50%;
+  left: 0.1875rem;
+  width: 1.125rem;
+  height: 1.125rem;
+  border-radius: 50%;
+  background: #fff;
+  border: 1px solid var(--line);
+  transform: translateY(-50%);
+  transition: all 0.18s;
+}
+
+.switch input:checked + .switch-track {
+  background: var(--tint-3);
+  border-color: var(--line-strong);
+}
+
+.switch input:checked + .switch-track .switch-knob {
+  /* 行程用百分比算，轨道怎么缩放，圆钮都正好停在右侧内边 */
+  left: calc(100% - 1.125rem - 0.1875rem);
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
+.switch input:focus-visible + .switch-track {
+  outline: 2px solid var(--blue);
+  outline-offset: 0.1875rem;
+}
+
+.switch-text {
+  font-size: 0.719rem;
+  color: var(--fg-dim);
+  min-width: 2em;
+}
+
+/* 人设卡片：一行一张，正文单行省略；行不响应点击，只有右边两个按钮能点 */
+.keylist-tall {
+  max-height: min(10.625rem, 36dvh);
+}
+
+.personarow:hover {
+  border-color: var(--line-strong);
+}
+
+.personatext {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.781rem;
+  line-height: 1.6;
+  color: var(--fg-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.personaedit {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+  cursor: default;
+}
+
+.personaedit textarea.field-input {
+  width: 100%;
+  min-height: 4.875rem;
+}
+
+.personaacts {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+/* 模型映射行：原名和上游名各占一半，箭头夹在中间，都不换行 */
+.maprow {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+.mapname {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.6875rem;
+  line-height: 1.6;
+  color: var(--fg-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mapfrom {
+  text-align: right;
+}
+
+.maparrow {
+  flex: none;
+  font-size: 0.6875rem;
+  color: var(--fg-dim);
+}
+
+.maprow.personaedit .field-input {
+  width: 100%;
+}
+
+/* 二级菜单：横向滑动，吸附居中，边缘淡出提示还能滑 */
+.subnav {
+  position: sticky;
+  top: 0.375rem;
+  z-index: 6;
+  width: min(35rem, 100%);
+  padding: 0.25rem;
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(0.625rem);
+  -webkit-backdrop-filter: blur(0.625rem);
+  border: 1px solid var(--line);
+  border-radius: 0.375rem;
+  box-shadow: 0.375rem 0.375rem 2px rgba(var(--accent-rgb), 0.12);
+}
+
+/* 右边淡出一点，提示这一排还能继续滑，别让最后一项像是被切掉了 */
+.subnav::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  bottom: 1px;
+  width: 1rem;
+  border-radius: 0 0.375rem 0.375rem 0;
+  background: linear-gradient(to right, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.92));
+  pointer-events: none;
+}
+
+.subnav-track {
+  position: relative;
+  display: flex;
+  gap: 0.25rem;
+  padding: 1px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
+  scroll-padding: 0 0.25rem;
+}
+
+/* 二级菜单的选中底块，跟顶栏同一套做法
+   放在滚动轨道内部，横向滑动时跟着轨道一起走 */
+.subglider {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: var(--tint-2);
+  border: 1px solid var(--line-strong);
+  border-radius: 0.25rem;
+  box-shadow: 2px 2px 1px rgba(var(--accent-rgb), 0.12);
+}
+
+.subnav-track.subglider-on .subglider {
+  transition:
+    transform 260ms cubic-bezier(0.32, 0.72, 0, 1),
+    width 260ms cubic-bezier(0.32, 0.72, 0, 1),
+    height 200ms ease;
+}
+
+.subnav-track::-webkit-scrollbar {
+  display: none;
+}
+
+.subnav-item {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.375rem 0.625rem;
+  white-space: nowrap;
+  color: var(--fg-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  scroll-snap-align: center;
+  transition: color 0.18s;
+}
+
+.subnav-item:hover:not([aria-pressed="true"]) {
+  color: var(--blue);
+}
+
+/* 选中态只留文字颜色，底块和投影交给滑动的指示块 */
+.subnav-item[aria-pressed="true"] {
+  color: var(--blue);
+}
+
+/* 首屏闸门：数据没到齐时二级菜单下面整块留白，等齐了一次性显示，不再逐块闪 */
+#view-settings[data-boot] > .setform,
+#view-settings[data-boot] > .setsec {
+  display: none;
+}
+
+/* 表单拆成多个分类面板，用容器对齐保持和直接子项一样的间距 */
+.setform {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.875rem;
+  width: 100%;
+}
+
+/* 主题色：一排圆形色块，选中加圈 */
+.swatches {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(4rem, 1fr));
+  justify-items: center;
+  gap: 0.875rem 0.375rem;
+  padding: 0.375rem 0 2px;
+}
+
+.swatch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0;
+  font: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.swatch-dot {
+  width: 2.125rem;
+  height: 2.125rem;
+  border-radius: 50%;
+  background: var(--dot);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: inset 0 -0.375rem 0.625rem rgba(255, 255, 255, 0.18);
+  transition: all 0.18s;
+}
+
+.swatch:hover .swatch-dot {
+  transform: translateY(-2px);
+}
+
+.swatch-name {
+  font-size: 0.6875rem;
+  color: var(--fg-dim);
+  transition: color 0.18s;
+}
+
+.swatch[aria-checked="true"] .swatch-dot {
+  box-shadow: 0 0 0 0.1875rem #fff, 0 0 0 0.3125rem var(--dot);
+}
+
+.swatch[aria-checked="true"] .swatch-name {
+  color: var(--blue);
+  font-weight: 700;
+}
+
+.swatch:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 0.25rem;
+  border-radius: 0.25rem;
+}
+
+/* 设置页里的日期下拉跟旁边输入框一个体量，别一个高一个矮 */
+.field .daypick-btn {
+  font-size: 0.844rem;
+  padding: 0.5rem 0.6875rem;
+  border-radius: 0.25rem;
+}
+
+/* 日志管理：三个数字并排，像一张小表 */
+.logsec-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.375rem;
+  padding-top: 0.625rem;
+  border-top: 1px solid var(--line);
+}
+
+.logsec-head:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.logsec-title {
+  font-size: 0.719rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--fg);
+}
+
+.logstat {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.375rem;
+}
+
+.logstat-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1875rem;
+  padding: 0.5rem 0.5625rem;
+  background: var(--tint-1);
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+}
+
+.logstat-key {
+  font-size: 0.594rem;
+  letter-spacing: 0.1em;
+  color: var(--fg-dim);
+}
+
+.logstat-num {
+  font-size: 0.875rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--blue);
+}
+
+/* 自检结果：一行一段，左边状态点，中间说明，右边耗时 */
+.chklist {
+  list-style: none;
+  margin: 0.375rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.chkrow {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.4375rem 0.5625rem;
+  background: var(--tint-1);
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+}
+
+.chkrow[data-busy="1"] {
+  opacity: 0.55;
+}
+
+.chkdot {
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-top: 0.25rem;
+  border-radius: 50%;
+  background: rgba(var(--accent-rgb), 0.25);
+}
+
+.chkdot[data-ok="1"] {
+  background: #14804a;
+}
+
+.chkdot[data-ok="0"] {
+  background: #c81e45;
+}
+
+.chkname {
+  flex: none;
+  width: 4.25rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1.5;
+  color: var(--fg);
+}
+
+.chkdetail {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--fg-dim);
+  word-break: break-all;
+}
+
+.chkrow[data-ok="0"] .chkdetail {
+  color: #c81e45;
+}
+
+.chkms {
+  flex: none;
+  font-size: 0.625rem;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-dim);
+}
+
+/* 强制状态：一行一段，右边三档切换，选中那档才亮 */
+.fakelist {
+  list-style: none;
+  margin: 0.375rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.fakerow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.5625rem;
+  background: var(--tint-1);
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+}
+
+.fakename {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1.5;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fakepick {
+  flex: none;
+  display: flex;
+  gap: 0.1875rem;
+}
+
+.fakebtn {
+  padding: 0.125rem 0.4375rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 1.5;
+  color: var(--fg-dim);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 0.1875rem;
+  cursor: pointer;
+}
+
+.fakebtn[data-on="true"] {
+  color: #fff;
+  border-color: transparent;
+}
+
+.fakebtn[data-mode="auto"][data-on="true"] {
+  color: var(--fg);
+  background: var(--tint-2);
+  border-color: var(--line);
+}
+
+.fakebtn[data-mode="fail"][data-on="true"] {
+  background: #c81e45;
+}
+
+.fakebtn[data-mode="ok"][data-on="true"] {
+  background: #14804a;
+}
+
+.fakerow[data-mode="fail"] .fakename,
+.fakerow[data-mode="ok"] .fakename {
+  color: var(--fg);
+}
+
+/* 按天清理列表：沿用 key 那套行样式，窗口比 key 高一些好翻 */
+.logdays {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0 2px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  max-height: min(14rem, 34dvh);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(var(--accent-rgb), 0.3) transparent;
+}
+
+.logdays::-webkit-scrollbar {
+  width: 0.375rem;
+}
+
+.logdays::-webkit-scrollbar-thumb {
+  border-radius: 0.1875rem;
+  background: rgba(var(--accent-rgb), 0.28);
+}
+
+.logdaydate {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.781rem;
+  font-weight: 700;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.logdaynum {
+  flex: none;
+  font-size: 0.6875rem;
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.logdayempty {
+  padding: 0.625rem 0.5rem;
+  font-size: 0.719rem;
+  color: var(--fg-dim);
+  text-align: center;
+}
+
+/* 保存状态：底部浮一下就走，空的时候完全不占位 */
+.savehint {
+  position: fixed;
+  left: 50%;
+  bottom: 1.5rem;
+  z-index: 90;
+  margin: 0;
+  padding: 0.3125rem 0.75rem;
+  font-size: 0.719rem;
+  font-weight: 700;
+  color: var(--blue);
+  background: #fff;
+  border: 1px solid var(--line-strong);
+  border-radius: 0.25rem;
+  box-shadow: 0.25rem 0.25rem 2px rgba(var(--accent-rgb), 0.18);
+  transform: translate(-50%, 0.5rem);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.savehint:not(:empty) {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.savehint[data-tone="ok"] {
+  color: #14804a;
+  border-color: rgba(20, 128, 74, 0.5);
+}
+
+.savehint[data-tone="bad"] {
+  color: #c81e45;
+  border-color: rgba(200, 30, 69, 0.5);
+}

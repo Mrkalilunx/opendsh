@@ -1,0 +1,889 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
+<meta name="theme-color" content="#f7f8ff">
+<title>dsh · 主页 / 聊天 / 设置 / 日志</title>
+<link rel="icon" href="/res/logo.svg" type="image/svg+xml">
+<script>
+  try {
+    var tref = localStorage.getItem('dsh:theme')
+    if (tref) document.documentElement.dataset.theme = tref
+  } catch (err) {}
+</script>
+<script>
+  // 首帧就按 hash 定页：刷新设置页时不能先画主页再切过去，否则整页闪一下
+  ;(function () {
+    var views = ['home', 'chat', 'settings', 'logs', 'usage']
+    var raw = location.hash.replace(/^#\/?/, '').trim()
+    document.documentElement.dataset.view = views.indexOf(raw) >= 0 ? raw : 'home'
+  })()
+</script>
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/nav.css">
+<link rel="stylesheet" href="/css/kit.css">
+<link rel="stylesheet" href="/css/app.css">
+<link rel="stylesheet" href="/css/picker.css">
+<link rel="stylesheet" href="/css/settings.css">
+<link rel="stylesheet" href="/css/logs.css">
+<link rel="stylesheet" href="/css/usage.css">
+<link rel="stylesheet" href="/css/chat.css">
+</head>
+<body>
+<div class="shell">
+  <header class="topbar">
+    <a class="brand" href="#/home">
+      <svg class="logo" viewBox="0 0 72 72" aria-hidden="true">
+        <rect x="6" y="6" width="60" height="60" rx="18" fill="none" stroke="currentColor" stroke-width="3" opacity="0.5"/>
+        <circle cx="36" cy="36" r="13" fill="none" stroke="currentColor" stroke-width="3"/>
+        <circle cx="36" cy="36" r="4.5" fill="currentColor"/>
+      </svg>
+      <span>dsh</span>
+    </a>
+    <nav class="tabs" aria-label="页面导航">
+      <span class="tabglider" aria-hidden="true"></span>
+      <a class="tab" href="#/home" data-view="home">主页</a>
+      <a class="tab" href="#/chat" data-view="chat">聊天</a>
+      <a class="tab" href="#/settings" data-view="settings">设置</a>
+      <a class="tab" href="#/logs" data-view="logs">日志</a>
+      <a class="tab" href="#/usage" data-view="usage">用量</a>
+    </nav>
+  </header>
+
+  <main class="deck">
+    <section class="view view-stack" id="view-home" data-view="home">
+      <div class="stage">
+        <div class="herohead">
+          <div class="badge" id="herobtn">
+            <svg class="logo" viewBox="0 0 72 72" aria-hidden="true">
+              <rect x="6" y="6" width="60" height="60" rx="18" fill="none" stroke="currentColor" stroke-width="3" opacity="0.5"/>
+              <circle cx="36" cy="36" r="13" fill="none" stroke="currentColor" stroke-width="3"/>
+              <circle cx="36" cy="36" r="4.5" fill="currentColor"/>
+            </svg>
+          </div>
+          <h1 class="title">DSH</h1>
+        </div>
+
+        <div class="picker" id="picker">
+          <button class="picker-btn" id="pickerbtn" type="button" aria-haspopup="listbox" aria-expanded="false">
+            <span class="picker-mark" aria-hidden="true"></span>
+            <span class="picker-label">
+              <span class="picker-key">当前模型</span>
+              <span class="picker-name" id="pickname">加载中…</span>
+            </span>
+            <span class="picker-caret" aria-hidden="true"></span>
+          </button>
+          <div class="picker-drawer" id="drawer" role="listbox" aria-label="模型列表" hidden>
+            <div class="picker-head">
+              <span>选择模型</span>
+              <span class="picker-count" id="pickcount">0</span>
+            </div>
+            <div class="picker-list" id="picklist"></div>
+          </div>
+        </div>
+
+        <div class="facts">
+          <div class="fact">
+            <span class="fact-key">出口 IP</span>
+            <span class="fact-val" id="ipval">查询中…</span>
+            <button class="fact-btn" type="button" id="ipbtn">刷新</button>
+          </div>
+          <div class="fact">
+            <span class="fact-key">session</span>
+            <span class="fact-val" id="sessval">加载中…</span>
+            <button class="fact-btn" type="button" id="sessbtn">刷新</button>
+          </div>
+        </div>
+
+        <p class="meta">
+          <span class="dot" aria-hidden="true"></span>
+          <span id="status">正在连接热重载…</span>
+        </p>
+      </div>
+
+      <div class="syscard" id="syscard">
+        <div class="syshead">
+          <span class="sysport">端口 <b id="sysport">—</b></span>
+          <span class="sysaddr" id="sysaddr">—</span>
+        </div>
+
+        <div class="sysrow">
+          <span class="sysrow-name">CPU</span>
+          <span class="syssegs" id="syscores" aria-hidden="true"></span>
+          <span class="sysrow-val" id="syscpu">—</span>
+        </div>
+
+        <p class="sysnote syssub" id="syscpunote">—</p>
+
+        <div class="sysrow">
+          <span class="sysrow-name">GPU</span>
+          <span class="sysbar" id="sysgpubar"><i></i></span>
+          <span class="sysrow-val" id="sysgpu">—</span>
+        </div>
+
+        <p class="sysnote syssub" id="sysgpunote">—</p>
+
+        <div class="sysrow">
+          <span class="sysrow-name">内存</span>
+          <span class="sysbar" id="sysmembar"><i></i></span>
+          <span class="sysrow-val" id="sysmem">—</span>
+        </div>
+
+        <div class="syssec">
+          <span class="syssec-title">数据库</span>
+          <div class="sysdb" id="sysdb" data-ok="false">
+            <span class="sysdb-cell wide"><i>版本</i><b id="sysdbver">—</b></span>
+            <span class="sysdb-cell"><i>地址</i><b id="sysdbaddr">—</b></span>
+            <span class="sysdb-cell"><i>库名</i><b id="sysdbname">—</b></span>
+            <span class="sysdb-cell"><i>表数</i><b id="sysdbtables">—</b></span>
+            <span class="sysdb-cell"><i>占用</i><b id="sysdbbytes">—</b></span>
+          </div>
+        </div>
+
+        <div class="syssvc" id="syssvc"></div>
+        <p class="sysnote" id="sysnote">读取中…</p>
+      </div>
+
+      <div class="apicard">
+        <header class="apihead">
+          <span class="apititle">支持的接口</span>
+          <span class="apicount" id="apicount">—</span>
+        </header>
+        <ul class="apilist" id="apilist"></ul>
+      </div>
+    </section>
+
+    <section class="view" id="view-chat" data-view="chat" hidden>
+      <div class="chat">
+        <div class="panel chat-panel">
+          <header class="panel-head">
+            <h2 class="panel-title">聊天</h2>
+            <span class="panel-side">
+              <span class="panel-note" id="chatmodel">—</span>
+              <button class="keyact" type="button" id="chatnew" title="新建对话" aria-label="新建对话">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                </svg>
+              </button>
+              <button class="keyact" type="button" id="chathist" title="历史对话" aria-label="历史对话" aria-expanded="false">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                </svg>
+              </button>
+            </span>
+          </header>
+
+          <div class="chat-menu" id="chatmenu" hidden>
+            <header class="chat-menu-head">
+              <span>历史对话</span>
+              <span class="panel-note" id="chatcount">0</span>
+            </header>
+            <ul class="chat-menu-list" id="chatlist"></ul>
+          </div>
+
+          <div class="chat-log" id="chatlog" role="log" aria-live="polite"></div>
+
+          <div class="chat-menu chat-pop" id="chatpersonamenu" hidden>
+            <header class="chat-menu-head">
+              <span>人设卡片</span>
+              <span class="panel-note" id="chatpersonacount">0</span>
+            </header>
+            <ul class="chat-menu-list" id="chatpersonalist"></ul>
+          </div>
+
+          <div class="chat-menu chat-pop" id="chatmodelmenu" hidden>
+            <header class="chat-menu-head">
+              <span>切换模型</span>
+              <span class="panel-note" id="chatmodelcount">0</span>
+            </header>
+            <ul class="chat-menu-list" id="chatmodellist"></ul>
+          </div>
+
+          <form class="chat-form" id="chatform">
+            <div class="chat-tray" id="chattray" hidden></div>
+            <div class="chat-box" id="chatbox">
+              <textarea class="chat-input" id="chatinput" rows="1" placeholder="说点什么…" spellcheck="false"></textarea>
+              <div class="chat-tools">
+                <button class="chattool" type="button" id="chatplus" title="添加文件" aria-label="添加文件">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                  </svg>
+                </button>
+                <input class="chat-file" type="file" id="chatfile" multiple hidden>
+                <button class="chatpick" type="button" id="chatpersona" aria-haspopup="dialog" aria-expanded="false" title="选择人设">未选人设</button>
+                <button class="chatpick chatmod" type="button" id="chatmodelsel" aria-haspopup="dialog" aria-expanded="false" title="切换模型">—</button>
+                <button class="chatsend" type="submit" id="chatsend" aria-label="发送" disabled>
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 19V5M6 11l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </form>
+          <p class="panel-state" id="chatstate" role="status"></p>
+        </div>
+      </div>
+
+      <div class="chat-act" id="chatact" hidden>
+        <div class="chat-act-card" id="chatactcard" role="menu" aria-label="消息操作"></div>
+      </div>
+    </section>
+
+    <section class="view view-stack" id="view-settings" data-view="settings" data-boot="1" hidden>
+      <nav class="subnav" aria-label="设置分类">
+        <div class="subnav-track" id="setnav">
+          <span class="subglider" aria-hidden="true"></span>
+          <button class="subnav-item" type="button" data-sec="model" aria-pressed="true">模型</button>
+          <button class="subnav-item" type="button" data-sec="sampling" aria-pressed="false">采样</button>
+          <button class="subnav-item" type="button" data-sec="net" aria-pressed="false">网络</button>
+          <button class="subnav-item" type="button" data-sec="codex" aria-pressed="false">Codex</button>
+          <button class="subnav-item" type="button" data-sec="theme" aria-pressed="false">主题</button>
+          <button class="subnav-item" type="button" data-sec="persona" aria-pressed="false">人设</button>
+          <button class="subnav-item" type="button" data-sec="session" aria-pressed="false">session</button>
+          <button class="subnav-item" type="button" data-sec="keys" aria-pressed="false">Key</button>
+          <button class="subnav-item" type="button" data-sec="logs" aria-pressed="false">日志</button>
+          <button class="subnav-item" type="button" data-sec="data" aria-pressed="false">数据</button>
+          <button class="subnav-item" type="button" data-sec="debug" id="setdebug" aria-pressed="false" hidden>调试</button>
+        </div>
+      </nav>
+
+      <form class="setform" id="setform">
+        <div class="panel setsec" data-sec="model">
+          <header class="panel-head">
+            <h2 class="panel-title">模型</h2>
+            <span class="panel-note">改完立即生效</span>
+          </header>
+
+          <div class="form form-tight">
+            <label class="field">
+              <span class="field-key">默认模型</span>
+              <input class="field-input" id="setmodel" type="text" spellcheck="false" autocomplete="off" placeholder="deepseek-v4.1-flash-free">
+              <span class="field-hint">请求未指定模型或模型不存在时使用</span>
+            </label>
+
+            <div class="field">
+              <span class="field-key">模型列表缓存（秒）</span>
+              <input class="field-input" id="setmodelcache" type="number" min="5" max="600" step="5">
+              <span class="field-hint">/v1/models 结果缓存多久，改完不用重启</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel setsec" data-sec="sampling" hidden>
+          <header class="panel-head">
+            <h2 class="panel-title">采样</h2>
+            <span class="panel-note">只补客户端没给的</span>
+          </header>
+
+          <div class="form form-tight">
+            <div class="field">
+              <span class="field-key">默认温度</span>
+              <input class="field-input" id="settemp" type="number" min="-1" max="2" step="0.1">
+              <span class="field-hint">客户端没带 temperature 时补上，−1 表示不覆盖</span>
+            </div>
+
+            <div class="field">
+              <span class="field-key">默认最大输出（tokens）</span>
+              <input class="field-input" id="setmaxtok" type="number" min="0" max="32000" step="128">
+              <span class="field-hint">客户端没带 max_tokens 时补上，0 表示不覆盖</span>
+            </div>
+
+            <div class="field field-row">
+              <span class="field-key">透传客户端 tools</span>
+              <label class="switch">
+                <input id="settools" type="checkbox">
+                <span class="switch-track"><span class="switch-knob"></span></span>
+                <span class="switch-text" id="settoolstext">启用</span>
+              </label>
+            </div>
+
+            <div class="field field-row">
+              <span class="field-key">工具桥</span>
+              <label class="switch">
+                <input id="setbridge" type="checkbox">
+                <span class="switch-track"><span class="switch-knob"></span></span>
+                <span class="switch-text" id="setbridgetext">启用</span>
+              </label>
+            </div>
+            <p class="field-hint">客户端工具太多时收成一个转发工具，调用时再拆回原名</p>
+
+            <div class="field">
+              <span class="field-key">tools 总数上限</span>
+              <input class="field-input" id="setbudget" type="number" min="12" max="64" step="1">
+              <span class="field-hint">含模板那 12 个，超出就走工具桥</span>
+            </div>
+
+            <div class="field field-row">
+              <span class="field-key">抑制模板工具</span>
+              <label class="switch">
+                <input id="setmute" type="checkbox">
+                <span class="switch-track"><span class="switch-knob"></span></span>
+                <span class="switch-text" id="setmutetext">关闭</span>
+              </label>
+            </div>
+            <p class="field-hint">开着时模型调那 12 个会被直接丢掉，改用客户端自己的工具</p>
+
+            <div class="entrybox">
+              <div class="entryrow">
+                <span class="entrypath">/v1</span>
+                <span class="entrywho">通用</span>
+                <span class="entrynote">按上面的开关抑制模板工具</span>
+              </div>
+              <div class="entryrow">
+                <span class="entrypath">/raw/v1</span>
+                <span class="entrywho">opencode</span>
+                <span class="entrynote">不抑制，模板工具照常能调</span>
+              </div>
+            </div>
+
+            <div class="field field-row">
+              <span class="field-key">opencode 入口</span>
+              <label class="switch">
+                <input id="setraw" type="checkbox">
+                <span class="switch-track"><span class="switch-knob"></span></span>
+                <span class="switch-text" id="setrawtext">启用</span>
+              </label>
+            </div>
+            <p class="field-hint">关掉后 /raw/v1 回 404，只留通用入口</p>
+          </div>
+        </div>
+
+        <div class="panel setsec" data-sec="net" hidden>
+          <header class="panel-head">
+            <h2 class="panel-title">网络</h2>
+            <span class="panel-note">改完立即生效</span>
+          </header>
+
+          <div class="form form-tight">
+            <div class="field">
+              <span class="field-key">重试次数</span>
+              <input class="field-input" id="setretries" type="number" min="0" max="10" step="1">
+              <span class="field-hint">0 表示跟随出口代理池数量</span>
+            </div>
+
+            <div class="field">
+              <span class="field-key">上游超时（毫秒）</span>
+              <input class="field-input" id="settimeout" type="number" min="5000" max="120000" step="1000">
+              <span class="field-hint">等上游响应头的上限，不包括流式输出时长</span>
+            </div>
+
+            <div class="field">
+              <span class="field-key">429 冷却（秒）</span>
+              <input class="field-input" id="setretryafter" type="number" min="1" max="120" step="1">
+              <span class="field-hint">限额时回给客户端的 retry-after 秒数</span>
+            </div>
+
+            <div class="field">
+              <span class="field-key">session 池大小</span>
+              <input class="field-input" id="setpool" type="number" min="1" max="100" step="1">
+              <span class="field-hint">保存后重建 session 池</span>
+            </div>
+
+            <div class="field field-row">
+              <span class="field-key">出口代理池</span>
+              <label class="switch">
+                <input id="setproxy" type="checkbox">
+                <span class="switch-track"><span class="switch-knob"></span></span>
+                <span class="switch-text" id="setproxytext">启用</span>
+              </label>
+            </div>
+
+            <div class="field field-row">
+              <span class="field-key">sk 校验</span>
+              <label class="switch">
+                <input id="keyauth" type="checkbox">
+                <span class="switch-track"><span class="switch-knob"></span></span>
+                <span class="switch-text" id="keyauthtext">关闭</span>
+              </label>
+            </div>
+
+          </div>
+        </div>
+
+        <div class="panel setsec" data-sec="logs" hidden>
+          <header class="panel-head">
+            <h2 class="panel-title">日志</h2>
+            <span class="panel-note">清理由此进入</span>
+          </header>
+
+          <div class="form form-tight">
+            <div class="logsec-head">
+              <span class="logsec-title">运行日志</span>
+              <button class="btn btn-small btn-danger" id="logclearall" type="button">清空全部</button>
+            </div>
+
+            <div class="logstat">
+              <div class="logstat-cell">
+                <span class="logstat-key">覆盖天数</span>
+                <span class="logstat-num" id="logstatdays">—</span>
+              </div>
+              <div class="logstat-cell">
+                <span class="logstat-key">总条数</span>
+                <span class="logstat-num" id="logstatrows">—</span>
+              </div>
+              <div class="logstat-cell">
+                <span class="logstat-key">占用空间</span>
+                <span class="logstat-num" id="logstatbytes">—</span>
+              </div>
+            </div>
+
+            <div class="field">
+              <span class="field-key">日志页显示条数</span>
+              <input class="field-input" id="setlogshow" type="number" min="50" max="2000" step="50">
+              <span class="field-hint">日志页一次拉多少条，拉的越多渲染越重</span>
+            </div>
+
+            <div class="field">
+              <span class="field-key">按天清理</span>
+              <ul class="logdays" id="logdaylist"></ul>
+              <span class="field-hint">点减号删一整天，删掉的日志不会恢复</span>
+            </div>
+
+            <div class="logsec-head">
+              <span class="logsec-title">请求记录</span>
+              <button class="btn btn-small btn-danger" id="reqclearall" type="button">清空全部</button>
+            </div>
+
+            <div class="logstat">
+              <div class="logstat-cell">
+                <span class="logstat-key">覆盖天数</span>
+                <span class="logstat-num" id="reqstatdays">—</span>
+              </div>
+              <div class="logstat-cell">
+                <span class="logstat-key">总条数</span>
+                <span class="logstat-num" id="reqstatrows">—</span>
+              </div>
+              <div class="logstat-cell">
+                <span class="logstat-key">占用空间</span>
+                <span class="logstat-num" id="reqstatbytes">—</span>
+              </div>
+            </div>
+
+            <div class="field">
+              <span class="field-key">按天清理</span>
+              <ul class="logdays" id="reqdaylist"></ul>
+              <span class="field-hint">一次转发一条，含收发的原文，删掉不会恢复</span>
+            </div>
+          </div>
+
+          <p class="panel-state" id="logadminstate" role="status"></p>
+        </div>
+
+        <div class="panel setsec" data-sec="data" hidden>
+          <header class="panel-head">
+            <h2 class="panel-title">数据</h2>
+            <span class="panel-note">库连接即时生效</span>
+          </header>
+
+          <div class="form form-tight">
+            <div class="field">
+              <span class="field-key">状态目录</span>
+              <input class="field-input" id="setstatedir" type="text" spellcheck="false" autocomplete="off" placeholder="留空用默认">
+              <span class="field-hint" id="statedirnow">读取中…</span>
+            </div>
+
+            <p class="field-hint">Key、人设、模型映射跟着走，老目录里的数据仍能读到，改写只进新目录</p>
+
+            <div class="field">
+              <span class="field-key">MariaDB 数据目录</span>
+              <input class="field-input" id="setdatadir" type="text" spellcheck="false" autocomplete="off" placeholder="留空用默认">
+              <span class="field-hint" id="datadirnow">读取中…</span>
+            </div>
+
+            <p class="field-hint">改完要把数据库停了重开才用新目录</p>
+
+            <div class="logsec-head">
+              <span class="logsec-title">数据库连接</span>
+            </div>
+
+            <div class="field">
+              <span class="field-key">地址</span>
+              <input class="field-input" id="setdbhost" type="text" spellcheck="false" autocomplete="off" placeholder="127.0.0.1">
+            </div>
+
+            <div class="field">
+              <span class="field-key">端口</span>
+              <input class="field-input" id="setdbport" type="number" min="0" max="65535" step="1" inputmode="numeric" placeholder="3306">
+            </div>
+
+            <div class="field">
+              <span class="field-key">用户名</span>
+              <input class="field-input" id="setdbuser" type="text" spellcheck="false" autocomplete="off" placeholder="dsh">
+            </div>
+
+            <div class="field">
+              <span class="field-key">密码</span>
+              <input class="field-input" id="setdbpass" type="text" spellcheck="false" autocomplete="off" placeholder="留空保持不变">
+            </div>
+
+            <div class="field">
+              <span class="field-key">库名</span>
+              <input class="field-input" id="setdbname" type="text" spellcheck="false" autocomplete="off" placeholder="dsh">
+            </div>
+
+            <p class="field-hint">改完立即按新参数重连，连不上就退回只写内存</p>
+            <p class="field-hint" id="dbnow">读取中…</p>
+          </div>
+        </div>
+
+      </form>
+
+      <div class="panel setsec" data-sec="codex" hidden>
+        <header class="panel-head">
+          <h2 class="panel-title">Codex</h2>
+          <span class="panel-note" id="mapnote">没有映射</span>
+        </header>
+
+        <div class="form form-tight">
+          <div class="field field-row">
+            <span class="field-key">Responses API</span>
+            <label class="switch">
+              <input id="setresp" type="checkbox">
+              <span class="switch-track"><span class="switch-knob"></span></span>
+              <span class="switch-text" id="setresptext">启用</span>
+            </label>
+          </div>
+          <p class="field-hint">开启后才能走 /v1/responses，Codex 这类客户端要用；关掉按未知端点回 404</p>
+
+          <div class="logsec-head">
+            <span class="logsec-title">模型映射</span>
+          </div>
+          <p class="field-hint">客户端报左边这个名字时，上游换成右边那个；没配映射就按原样发</p>
+          <ul class="keylist" id="maprows"></ul>
+          <p class="panel-state" id="mapstate" role="status"></p>
+        </div>
+      </div>
+
+      <div class="panel setsec" data-sec="theme" hidden>
+        <header class="panel-head">
+          <h2 class="panel-title">主题</h2>
+          <span class="panel-note" id="themenote">蓝色</span>
+        </header>
+
+        <div class="form form-tight">
+          <p class="field-hint">只换强调色和底色，卡片结构不变；设置只存在这台浏览器</p>
+          <div class="swatches" id="swatches" role="radiogroup" aria-label="主题色">
+            <button class="swatch" type="button" role="radio" data-theme="blue" aria-checked="true" style="--dot:#2b2bff"><span class="swatch-dot"></span><span class="swatch-name">蓝</span></button>
+            <button class="swatch" type="button" role="radio" data-theme="violet" aria-checked="false" style="--dot:#6d28d9"><span class="swatch-dot"></span><span class="swatch-name">紫</span></button>
+            <button class="swatch" type="button" role="radio" data-theme="cyan" aria-checked="false" style="--dot:#0884a8"><span class="swatch-dot"></span><span class="swatch-name">青</span></button>
+            <button class="swatch" type="button" role="radio" data-theme="green" aria-checked="false" style="--dot:#058c62"><span class="swatch-dot"></span><span class="swatch-name">绿</span></button>
+            <button class="swatch" type="button" role="radio" data-theme="amber" aria-checked="false" style="--dot:#b05208"><span class="swatch-dot"></span><span class="swatch-name">琥珀</span></button>
+            <button class="swatch" type="button" role="radio" data-theme="rose" aria-checked="false" style="--dot:#be185d"><span class="swatch-dot"></span><span class="swatch-name">玫红</span></button>
+            <button class="swatch" type="button" role="radio" data-theme="slate" aria-checked="false" style="--dot:#334155"><span class="swatch-dot"></span><span class="swatch-name">石墨</span></button>
+          </div>
+          <p class="panel-state" id="themestate" role="status"></p>
+        </div>
+      </div>
+
+      <div class="panel setsec" data-sec="persona" hidden>
+        <header class="panel-head">
+          <h2 class="panel-title">人设</h2>
+          <span class="panel-note" id="personanote">还没有人设</span>
+        </header>
+
+        <div class="form form-tight">
+          <ul class="keylist keylist-tall" id="personarows"></ul>
+          <p class="panel-state" id="personastate" role="status"></p>
+        </div>
+      </div>
+
+      <div class="panel setsec" data-sec="session" hidden>
+        <header class="panel-head">
+          <h2 class="panel-title">session</h2>
+          <span class="panel-side">
+            <span class="panel-note" id="sessnote">加载中…</span>
+            <button class="keyact" type="button" id="sessreset" title="重新生成整池" aria-label="重新生成整池">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M21 3v5h-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          </span>
+        </header>
+
+        <div class="form form-tight">
+          <ul class="keylist" id="sessrows"></ul>
+          <p class="panel-state" id="sessstate" role="status"></p>
+        </div>
+      </div>
+
+      <div class="panel setsec" data-sec="keys" hidden>
+        <header class="panel-head">
+          <h2 class="panel-title">API Key</h2>
+          <span class="panel-note" id="keynote">未启用校验</span>
+        </header>
+
+        <div class="form form-tight">
+          <ul class="keylist" id="keylist"></ul>
+          <p class="panel-state" id="keystate" role="status"></p>
+        </div>
+      </div>
+
+      <div class="panel setsec" data-sec="debug" hidden>
+        <header class="panel-head">
+          <h2 class="panel-title">调试</h2>
+          <span class="panel-note">三连击主页徽标开关</span>
+        </header>
+
+        <div class="logsec-head">
+          <span class="logsec-title">服务自检</span>
+          <button class="btn btn-small" type="button" id="chkrun">跑一遍</button>
+        </div>
+
+        <p class="field-hint">逐段探服务、数据库、上游模型、上游链路、模板工具和状态目录，哪段不通直接标红</p>
+        <ul class="chklist" id="chkrows"></ul>
+        <p class="panel-state" id="chkstate" role="status"></p>
+
+        <div class="logsec-head">
+          <span class="logsec-title">强制状态</span>
+          <button class="btn btn-small" type="button" id="fakeclear">全清</button>
+        </div>
+
+        <p class="field-hint">只改页面显示，不动真实服务，用来看看挂了是什么样</p>
+        <ul class="fakelist" id="fakerows"></ul>
+        <p class="panel-state" id="fakestate" role="status"></p>
+
+        <div class="logsec-head">
+          <span class="logsec-title">测试日志</span>
+        </div>
+
+        <div class="form form-tight">
+          <div class="field">
+            <span class="field-key">灌入到哪一天</span>
+            <div class="daypick">
+              <button class="daypick-btn" id="dbgdaybtn" type="button" aria-haspopup="listbox" aria-expanded="false">
+                <span class="daypick-label" id="dbgdaylabel">今天</span>
+                <span class="daypick-caret" aria-hidden="true"></span>
+              </button>
+              <div class="daypick-drawer" id="dbgdaydrawer" role="listbox" aria-label="选择灌入日期" hidden></div>
+            </div>
+            <span class="field-hint">选今天会实时推送，选过去的日子只写库不动实时流</span>
+          </div>
+
+          <label class="field">
+            <span class="field-key">灌入测试日志条数</span>
+            <input class="field-input" id="dbgcount" type="number" min="1" max="2000" step="100" value="1000" inputmode="numeric">
+            <span class="field-hint">点一次生成就往日志里写这么多条，用来压渲染</span>
+          </label>
+
+          <p class="field-hint">日志会永久落库，内存缓冲按条数和体积自动伸缩</p>
+        </div>
+
+        <div class="debugacts">
+          <button class="btn btn-main btn-small" type="button" id="dbggen">生成</button>
+        </div>
+
+        <p class="panel-state" id="dbgstate" role="status"></p>
+      </div>
+    </section>
+
+    <section class="view" id="view-logs" data-view="logs" hidden>
+      <div class="panel panel-wide">
+        <header class="panel-head">
+          <h2 class="panel-title">日志</h2>
+          <span class="panel-side">
+            <span class="logcount" id="logcount" title="当前显示条数">0</span>
+            <span class="panel-note logstate" id="logstate" data-tone="idle">未连接</span>
+          </span>
+        </header>
+
+        <div class="logtabs" id="logtabs" role="tablist" aria-label="日志类型">
+          <span class="tabglider" aria-hidden="true"></span>
+          <button class="logtab" type="button" role="tab" data-pane="run" aria-selected="true">运行日志</button>
+          <button class="logtab" type="button" role="tab" data-pane="req" aria-selected="false">请求记录</button>
+          <button class="logtab" type="button" role="tab" data-pane="proc" aria-selected="false">进程</button>
+        </div>
+
+        <div class="logbar">
+          <div class="chips logchips" role="group" aria-label="按级别筛选">
+            <button class="chip" type="button" data-level="all" aria-pressed="true">全部</button>
+            <button class="chip" type="button" data-level="info" aria-pressed="false">信息</button>
+            <button class="chip" type="button" data-level="warn" aria-pressed="false">警告</button>
+            <button class="chip" type="button" data-level="error" aria-pressed="false">错误</button>
+          </div>
+          <div class="chips reqchips" role="group" aria-label="按来源筛选" hidden>
+            <button class="chip" type="button" data-source="all" aria-pressed="true">全部</button>
+            <button class="chip" type="button" data-source="opencode" aria-pressed="false">opencode</button>
+            <button class="chip" type="button" data-source="codex" aria-pressed="false">codex</button>
+            <button class="chip" type="button" data-source="astrbot" aria-pressed="false">astrbot</button>
+            <button class="chip" type="button" data-source="web" aria-pressed="false">网页</button>
+            <button class="chip" type="button" data-source="script" aria-pressed="false">脚本</button>
+            <button class="chip" type="button" data-source="other" aria-pressed="false">其他</button>
+          </div>
+          <div class="logtools">
+            <div class="daypick">
+              <button class="daypick-btn" id="logdaybtn" type="button" aria-haspopup="listbox" aria-expanded="false">
+                <span class="daypick-label" id="logdaylabel">今天</span>
+                <span class="daypick-caret" aria-hidden="true"></span>
+              </button>
+              <div class="daypick-drawer" id="logdaydrawer" role="listbox" aria-label="按天查看日志" hidden></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="logbox" id="logbox">
+          <div class="logpane" id="logpane-run">
+            <ol class="loglist" id="loglist" aria-live="polite"></ol>
+            <p class="logempty" id="logempty" hidden>暂无日志，等待新记录</p>
+            <button class="logjump" type="button" id="logjump" hidden>回到最新</button>
+          </div>
+          <div class="logpane" id="logpane-req" hidden>
+            <ol class="reqlist" id="reqlist" aria-live="polite"></ol>
+            <p class="logempty" id="reqempty" hidden>这一天没有请求记录</p>
+          </div>
+          <div class="logpane" id="logpane-proc" hidden>
+            <div class="procbar">
+              <div class="chips" role="group" aria-label="按什么排序">
+                <button class="chip" type="button" data-sort="cpu" aria-pressed="true">CPU</button>
+                <button class="chip" type="button" data-sort="rss" aria-pressed="false">内存</button>
+              </div>
+              <button class="chip" type="button" id="procorder">降序</button>
+            </div>
+            <ol class="proclist" id="proclist" aria-live="polite"></ol>
+            <p class="logempty" id="procempty" hidden>没有读到 Termux 的进程</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="reqsheet" id="reqsheet" hidden>
+        <div class="reqsheet-panel" role="dialog" aria-modal="true" aria-label="请求详情">
+          <header class="reqsheet-head">
+            <span class="reqsheet-headmain">
+              <span class="reqsheet-title" id="reqtitle">请求详情</span>
+              <span class="reqsheet-stamp" id="reqstamp"></span>
+            </span>
+            <span class="reqsheet-acts">
+              <button class="reqsheet-del" type="button" id="reqdel">删除</button>
+              <button class="reqsheet-x" type="button" id="reqclose">关闭</button>
+            </span>
+          </header>
+          <div class="reqsheet-meta" id="reqmeta"></div>
+          <div class="reqsheet-body" id="reqbody"></div>
+        </div>
+      </div>
+      <div class="reqsheet" id="procsheet" hidden>
+        <div class="reqsheet-panel" role="dialog" aria-modal="true" aria-label="进程详情">
+          <header class="reqsheet-head">
+            <span class="reqsheet-headmain">
+              <span class="reqsheet-title" id="proctitle">进程详情</span>
+              <span class="reqsheet-stamp" id="procstamp"></span>
+            </span>
+            <span class="reqsheet-acts">
+              <button class="reqsheet-del" type="button" id="procdel">结束</button>
+              <button class="reqsheet-x" type="button" id="procclose">关闭</button>
+            </span>
+          </header>
+          <div class="reqsheet-meta" id="procmeta"></div>
+          <div class="reqsheet-body" id="procbody"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="view view-stack" id="view-usage" data-view="usage" hidden>
+      <div class="panel panel-wide">
+        <header class="panel-head">
+          <h2 class="panel-title">用量</h2>
+          <span class="panel-side">
+            <span class="panel-note" id="usagenote">读取中…</span>
+          </span>
+        </header>
+
+        <div class="usagerange">
+          <div class="chips" role="group" aria-label="统计范围">
+            <button class="chip" type="button" data-days="1" aria-pressed="false">今天</button>
+            <button class="chip" type="button" data-days="7" aria-pressed="true">7 天</button>
+            <button class="chip" type="button" data-days="30" aria-pressed="false">30 天</button>
+            <button class="chip" type="button" data-days="90" aria-pressed="false">90 天</button>
+          </div>
+        </div>
+
+        <div class="usagestats" id="usagestats">
+          <div class="usagestat">
+            <span class="usagestat-val" id="usagetotal">—</span>
+            <span class="usagestat-key" id="usagerangekey">近 7 天新增</span>
+            <span class="usagestat-note" id="usagetotalnote">—</span>
+          </div>
+          <div class="usagestat">
+            <span class="usagestat-val" id="usagetoday">—</span>
+            <span class="usagestat-key">今日新增</span>
+            <span class="usagestat-note" id="usagetodaynote">—</span>
+          </div>
+          <div class="usagestat">
+            <span class="usagestat-val" id="usagecalls">—</span>
+            <span class="usagestat-key" id="usagecallskey">近 7 天请求</span>
+            <span class="usagestat-note" id="usagecallsnote">—</span>
+          </div>
+        </div>
+
+        <dl class="usagemeta" id="usagesplit">
+          <div class="usagemeta-row">
+            <dt class="usagemeta-key">输入</dt>
+            <dd class="usagemeta-val" id="usagein">—</dd>
+          </div>
+          <div class="usagemeta-row">
+            <dt class="usagemeta-key">新增输入</dt>
+            <dd class="usagemeta-val" id="usagenew">—</dd>
+          </div>
+          <div class="usagemeta-row">
+            <dt class="usagemeta-key">输出</dt>
+            <dd class="usagemeta-val" id="usageout">—</dd>
+          </div>
+          <div class="usagemeta-row">
+            <dt class="usagemeta-key">缓存命中</dt>
+            <dd class="usagemeta-val" id="usagecache">—</dd>
+          </div>
+          <div class="usagemeta-row">
+            <dt class="usagemeta-key">推理</dt>
+            <dd class="usagemeta-val" id="usagereason">—</dd>
+          </div>
+          <div class="usagemeta-row">
+            <dt class="usagemeta-key">成功率</dt>
+            <dd class="usagemeta-val" id="usageok">—</dd>
+          </div>
+          <div class="usagemeta-row">
+            <dt class="usagemeta-key">平均耗时</dt>
+            <dd class="usagemeta-val" id="usagems">—</dd>
+          </div>
+          <div class="usagemeta-row">
+            <dt class="usagemeta-key">预估花费</dt>
+            <dd class="usagemeta-val" id="usagecost">—</dd>
+          </div>
+        </dl>
+
+        <p class="usagehint">输入含缓存命中部分，新增输入才是真正新处理的内容</p>
+      </div>
+
+      <div class="panel panel-wide">
+        <header class="panel-head">
+          <h2 class="panel-title">每天用量</h2>
+          <span class="panel-note">柱高按当天新增 token</span>
+        </header>
+        <div class="usagechart" id="usagechart" role="img" aria-label="每日 token 用量"></div>
+        <p class="panel-state" id="usagechartstate" role="status"></p>
+      </div>
+
+      <div class="panel panel-wide">
+        <header class="panel-head">
+          <h2 class="panel-title">分模型</h2>
+          <span class="panel-note" id="usagemodelsnote">—</span>
+        </header>
+        <ul class="usagelist" id="usagemodels"></ul>
+      </div>
+
+      <div class="panel panel-wide">
+        <header class="panel-head">
+          <h2 class="panel-title">分来源</h2>
+          <span class="panel-note" id="usagesourcesnote">—</span>
+        </header>
+        <ul class="usagelist" id="usagesources"></ul>
+      </div>
+    </section>
+  </main>
+</div>
+
+<p class="savehint" id="setstate" role="status"></p>
+
+<script type="module" src="/js/main.js"></script>
+</body>
+</html>

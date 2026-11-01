@@ -1,0 +1,865 @@
+/* 日志页：工具栏、等宽日志流 */
+
+.logbar {
+  /* 筛选胶囊和右侧工具条钉死在同一行
+     以前用 wrap 加 12rem 下限，窄屏放不下就把工具条挤到第二行 */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.625rem;
+  flex-wrap: nowrap;
+  margin-top: 0.875rem;
+}
+
+.logchips {
+  /* 四个筛选胶囊等分一行，宽度随容器收缩
+     允许缩到内容宽度以下，宁可胶囊变窄也不换行 */
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.25rem;
+}
+
+.logchips .chip {
+  min-width: 0;
+  padding: 0.25rem 0;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 请求记录的来源筛选：七档挤一行，允许横向滚，不折成两行把列表压扁 */
+.reqchips {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.25rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.reqchips::-webkit-scrollbar {
+  display: none;
+}
+
+.reqchips .chip {
+  flex: none;
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.25rem;
+  min-width: 3.75rem;
+  padding: 0.25rem 0.5rem;
+  text-align: center;
+  white-space: nowrap;
+  font-size: 0.6875rem;
+}
+
+/* 名字在左、条数在右，条数用等宽数字，几位数都不会让按钮宽度抖 */
+.reqchipname {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.reqchipnum {
+  flex: none;
+  font-size: 0.625rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+.reqchips .chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.reqchips .chip:disabled:hover {
+  color: var(--fg-dim);
+}
+
+.logtools {
+  flex: none;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+/* 工具栏里的日期下拉：只占一小格，抽屉向左展开 */
+.logtools .daypick {
+  width: 5.25rem;
+}
+
+/* 工具栏挂在最右边，抽屉往左展开
+   抽屉最小 9rem 比触发器宽，往右开会直接顶出屏幕 */
+.logtools .daypick-drawer {
+  left: auto;
+  right: 0;
+}
+
+.logcount {
+  /* 数量挪到面板标题旁，宽度随位数自然长，不用再为工具栏挡子弹
+     等宽数字加居中，7 和 499/500 都稳在一格里 */
+  box-sizing: border-box;
+  min-width: 1.875rem;
+  text-align: center;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.1875rem;
+  color: var(--blue);
+  background: var(--tint-1);
+  border: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+
+.logstate {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-weight: 700;
+}
+
+/* 状态前面挂一颗小圆点，颜色跟着连接状态走，扫一眼就知道通不通 */
+.logstate::before {
+  content: "";
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.55;
+}
+
+.logstate[data-tone="live"] {
+  color: #14804a;
+}
+
+.logstate[data-tone="live"]::before {
+  opacity: 1;
+  animation: logpulse 1.8s ease-in-out infinite;
+}
+
+.logstate[data-tone="warn"] {
+  color: #b45309;
+}
+
+.logstate[data-tone="bad"] {
+  color: #c81e45;
+}
+
+@keyframes logpulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* 日志页：整页锁在视口里，面板逐层撑满，日志窗吃掉剩下的高度
+   以前日志窗用 clamp 写死高度，内容不满就留一大片空白，看着不像一页 */
+html[data-view="logs"] body {
+  height: 100dvh;
+  min-height: 100dvh;
+  overflow: hidden;
+}
+
+html[data-view="logs"] .shell,
+html[data-view="logs"] .deck,
+html[data-view="logs"] .view,
+html[data-view="logs"] .panel {
+  flex: 1;
+  min-height: 0;
+}
+
+html[data-view="logs"] .panel {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 日志窗：包一层定位容器，滚动按钮和空态都浮在里面 */
+.logbox {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-top: 0.75rem;
+}
+
+/* 运行日志和请求记录两栏共用一条面板头，分栏用会滑的指示块，和顶栏页签一套手感 */
+.logtabs {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.25rem;
+  margin-top: 0.875rem;
+  padding: 0.1875rem;
+  background: var(--tint-1);
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+}
+
+/* 首帧定位完再开过渡，和顶栏页签一致 */
+.logtabs.tabglider-on .tabglider {
+  transition:
+    transform 240ms cubic-bezier(0.32, 0.72, 0, 1),
+    width 240ms cubic-bezier(0.32, 0.72, 0, 1),
+    height 200ms ease;
+}
+
+.logtabs .tabglider {
+  background: #fff;
+  border-color: var(--line-strong);
+  box-shadow: 0.1875rem 0.1875rem 1px rgba(var(--accent-rgb), 0.12);
+}
+
+.logtab {
+  position: relative;
+  z-index: 1;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.25rem 0;
+  text-align: center;
+  color: var(--fg-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0.1875rem;
+  cursor: pointer;
+  transition: color 0.18s;
+}
+
+.logtab:hover:not([aria-selected="true"]) {
+  color: var(--blue);
+}
+
+.logtab[aria-selected="true"] {
+  color: var(--blue);
+}
+
+/* 两栏叠在同一个窗口里，切走的那栏整块收起来，滚动位置各自保留 */
+.logpane {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.loglist,
+.reqlist,
+.proclist {
+  list-style: none;
+  margin: 0;
+  padding: 0.5rem;
+  /* 高度由外层容器分配，dvh 只用来处理地址栏和键盘变化，不再有固定上限 */
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  background: var(--tint-1);
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.75rem;
+  line-height: 1.55;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(var(--accent-rgb), 0.3) transparent;
+}
+
+/* 空列表照样保留窗口和边框，只把提示叠在框里居中
+   以前 :empty 直接把整块藏掉，看起来像页面没加载出来 */
+.logempty {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem 0.75rem;
+  font-size: 0.75rem;
+  color: var(--fg-dim);
+  text-align: center;
+  pointer-events: none;
+}
+
+.loglist::-webkit-scrollbar,
+.reqlist::-webkit-scrollbar,
+.proclist::-webkit-scrollbar {
+  width: 0.375rem;
+}
+
+/* 进程分栏：卡片按资源占用排，工具条管排序依据和升降 */
+.procbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.proclist {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  align-content: start;
+  gap: 0.375rem;
+}
+
+.proccard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+  padding: 0.4375rem 0.5rem;
+  font: inherit;
+  font-family: inherit;
+  text-align: left;
+  color: var(--fg);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+  cursor: pointer;
+  transition: border-color 0.16s, background 0.16s;
+}
+
+.proccard:hover,
+.proccard:focus-visible {
+  background: var(--tint-1);
+  border-color: var(--line-strong);
+  outline: none;
+}
+
+.pchead {
+  display: flex;
+  align-items: baseline;
+  gap: 0.375rem;
+}
+
+.pccmd {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pcflag {
+  flex: none;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  color: #c81e45;
+}
+
+.pcmeta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.375rem;
+  font-size: 0.625rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-dim);
+}
+
+.pcmeta > span {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pccpu {
+  color: var(--blue);
+}
+
+/* 进程详情里的键值表：左边标签，右边值，长路径自动折行 */
+.procinfo {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.1875rem 0.75rem;
+  margin: 0;
+  font-size: 0.6875rem;
+  line-height: 1.6;
+}
+
+.procinfo dt {
+  color: var(--fg-dim);
+  white-space: nowrap;
+}
+
+.procinfo dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--fg-soft);
+  word-break: break-all;
+}
+
+.proclist::-webkit-scrollbar {
+  width: 0.375rem;
+}
+
+.proclist::-webkit-scrollbar-thumb {
+  border-radius: 0.1875rem;
+  background: rgba(var(--accent-rgb), 0.28);
+}
+
+/* 空提示别盖住上面的排序条 */
+#logpane-proc .logempty {
+  top: 2.25rem;
+}
+
+.loglist::-webkit-scrollbar-thumb,
+.reqlist::-webkit-scrollbar-thumb {
+  border-radius: 0.1875rem;
+  background: rgba(var(--accent-rgb), 0.28);
+}
+
+.logrow {
+  display: grid;
+  /* 时间列和级别列都写死宽度，每行各建一个网格也能对齐
+     正文吃剩下的，换行时自动缩进对齐，不会跑回时间下面 */
+  grid-template-columns: 4.25rem 2.25rem minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.1875rem;
+}
+
+.logrow:hover {
+  background: var(--tint-2);
+}
+
+/* 警告和错误左侧加一道色条，扫一眼就能定位
+   两者各自带底色，悬停时单独加深，不会被普通行的浅蓝覆盖 */
+.logrow-warn,
+.logrow-error {
+  box-shadow: inset 0.125rem 0 0 currentColor;
+}
+
+.logrow-warn {
+  color: #b45309;
+  background: color-mix(in srgb, #b45309 5%, transparent);
+}
+
+.logrow-warn:hover {
+  background: color-mix(in srgb, #b45309 11%, transparent);
+}
+
+.logrow-error {
+  color: #c81e45;
+  background: color-mix(in srgb, #c81e45 6%, transparent);
+}
+
+.logrow-error:hover {
+  background: color-mix(in srgb, #c81e45 12%, transparent);
+}
+
+.logtime {
+  color: #9a9ab8;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.6875rem;
+  white-space: nowrap;
+}
+
+.loglevel {
+  box-sizing: border-box;
+  width: 2.25rem;
+  text-align: center;
+  font-size: 0.625rem;
+  font-weight: 700;
+  padding: 0 0.1875rem;
+  border-radius: 0.1875rem;
+  color: var(--blue);
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.loglevel-warn {
+  color: #b45309;
+  border-color: rgba(180, 83, 9, 0.35);
+}
+
+.loglevel-error {
+  color: #c81e45;
+  border-color: rgba(200, 30, 69, 0.35);
+}
+
+.logmsg {
+  min-width: 0;
+  color: var(--fg-soft);
+  white-space: pre-wrap;
+  word-break: break-word;
+  /* 超长单行只在行内横向滚，不把整条日志撑出卡片 */
+  overflow-wrap: anywhere;
+}
+
+.logrow-warn .logmsg {
+  color: #8a4b06;
+}
+
+.logrow-error .logmsg {
+  color: #a3173a;
+}
+
+/* 停在历史中间时浮出「回到最新」，避免一直手动往下滑 */
+.logjump {
+  position: absolute;
+  left: 50%;
+  bottom: 0.625rem;
+  transform: translateX(-50%);
+  font: inherit;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  padding: 0.3125rem 0.75rem;
+  color: #fff;
+  background: var(--blue);
+  border: 1px solid var(--blue);
+  border-radius: 50em;
+  box-shadow: 0.25rem 0.25rem 1px rgba(var(--accent-rgb), 0.2);
+  cursor: pointer;
+  animation: logpop 160ms ease-out both;
+}
+
+.logjump:hover {
+  filter: brightness(1.06);
+}
+
+@keyframes logpop {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 0.375rem);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+/* 请求记录：一行一条，状态、时间、耗时、来源、模型五列
+   每行各自是独立网格，列宽必须写死才对得齐，不能靠内容撑 */
+.reqrow {
+  display: grid;
+  /* 时间列右对齐、耗时列左对齐，两列贴在一起，中间只留一个 gap */
+  grid-template-columns: 2.5rem 3.5rem 3.25rem 3.75rem minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.1875rem 0.25rem;
+  border-radius: 0.1875rem;
+  cursor: pointer;
+}
+
+.reqrow:hover,
+.reqrow:focus-visible {
+  background: var(--tint-2);
+  outline: none;
+}
+
+.reqstat {
+  box-sizing: border-box;
+  width: 2.5rem;
+  text-align: center;
+  font-size: 0.625rem;
+  font-weight: 700;
+  padding: 0 0.25rem;
+  border-radius: 0.1875rem;
+  border: 1px solid var(--line);
+  color: var(--blue);
+  font-variant-numeric: tabular-nums;
+}
+
+.reqstat[data-tone="ok"] {
+  color: #14804a;
+  border-color: rgba(20, 128, 74, 0.35);
+  background: color-mix(in srgb, #14804a 7%, transparent);
+}
+
+.reqstat[data-tone="warn"] {
+  color: #b45309;
+  border-color: rgba(180, 83, 9, 0.35);
+  background: color-mix(in srgb, #b45309 7%, transparent);
+}
+
+.reqstat[data-tone="bad"] {
+  color: #c81e45;
+  border-color: rgba(200, 30, 69, 0.35);
+  background: color-mix(in srgb, #c81e45 8%, transparent);
+}
+
+.reqtime {
+  color: #9a9ab8;
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.reqms {
+  color: var(--fg-dim);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-align: left;
+}
+
+/* 来源标签：一行里第四列，固定宽度，长名字截断不挤模型 */
+.reqsrc {
+  box-sizing: border-box;
+  width: 3.75rem;
+  padding: 0 0.3125rem;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--fg-dim);
+  border: 1px solid var(--line);
+  border-radius: 62.5rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.reqsrc[data-source="opencode"] {
+  color: #0f766e;
+  border-color: rgba(15, 118, 110, 0.35);
+  background: color-mix(in srgb, #0f766e 7%, transparent);
+}
+
+.reqsrc[data-source="codex"] {
+  color: #6d28d9;
+  border-color: rgba(109, 40, 217, 0.3);
+  background: color-mix(in srgb, #6d28d9 7%, transparent);
+}
+
+.reqsrc[data-source="astrbot"] {
+  color: #b45309;
+  border-color: rgba(180, 83, 9, 0.3);
+  background: color-mix(in srgb, #b45309 7%, transparent);
+}
+
+.reqsrc[data-source="web"] {
+  color: var(--blue);
+  border-color: rgba(var(--accent-rgb), 0.3);
+  background: color-mix(in srgb, var(--blue) 7%, transparent);
+}
+
+.reqmodel {
+  min-width: 0;
+  color: var(--fg-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 详情做成底部升起的整块，正文长也不撑破页面，内部自己滚 */
+.reqsheet {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(24, 26, 48, 0.34);
+}
+
+.reqsheet[hidden] {
+  display: none;
+}
+
+.reqsheet-panel {
+  width: min(42.5rem, 100%);
+  max-height: 88dvh;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 1px solid var(--line-strong);
+  border-bottom: none;
+  border-radius: 0.5rem 0.5rem 0 0;
+  box-shadow: 0 -0.75rem 2rem rgba(var(--accent-rgb), 0.2);
+  animation: reqlift 220ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+@keyframes reqlift {
+  from {
+    transform: translateY(12%);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.reqsheet-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.625rem 0.75rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.reqsheet-title {
+  font-size: 0.8125rem;
+  font-weight: 800;
+  color: var(--blue);
+}
+
+.reqsheet-headmain {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.reqsheet-stamp {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.656rem;
+  color: var(--fg-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 选择器要压过上面的 .reqchip{flex:none}
+   只允许收缩不允许铺满，否则会拉成一整条空框，名字长了才省略 */
+.reqchip.reqchip-model {
+  flex: 0 1 auto;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.reqsheet-x {
+  font: inherit;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  padding: 0.25rem 0.625rem;
+  color: var(--fg-dim);
+  background: var(--tint-1);
+  border: 1px solid var(--line);
+  border-radius: 0.1875rem;
+  cursor: pointer;
+}
+
+.reqsheet-x:hover {
+  color: var(--blue);
+  border-color: var(--line-strong);
+}
+
+.reqsheet-acts {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+/* 删除挨着关闭，用红色描边区分，点第一下只会变成「确认删除」 */
+.reqsheet-del {
+  font: inherit;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  padding: 0.25rem 0.625rem;
+  color: #c81e45;
+  background: var(--tint-1);
+  border: 1px solid rgba(200, 30, 69, 0.35);
+  border-radius: 0.1875rem;
+  cursor: pointer;
+}
+
+.reqsheet-del:hover {
+  border-color: rgba(200, 30, 69, 0.6);
+}
+
+.reqsheet-del[data-armed="1"] {
+  color: #fff;
+  background: #c81e45;
+  border-color: #c81e45;
+}
+
+/* 标签只占一行，模型名长了就省略，宁可截断也不折到第二行
+   flex:none 是关键：否则正文一长，这一行会被 flex 压缩到只剩几像素，字直接被裁掉 */
+.reqsheet-meta {
+  flex: none;
+  display: flex;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  gap: 0.3125rem;
+  padding: 0.5rem 0.75rem 0;
+  font-size: 0.6875rem;
+  color: var(--fg-dim);
+}
+
+/* 胶囊要立起来：上下留出半行，圆角拉满，不然贴成一条扁片 */
+.reqchip {
+  flex: none;
+  white-space: nowrap;
+  padding: 0.1875rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 62.5rem;
+  background: var(--tint-1);
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.reqchip[data-tone="ok"] {
+  color: #14804a;
+  border-color: rgba(20, 128, 74, 0.35);
+}
+
+.reqchip[data-tone="warn"] {
+  color: #b45309;
+  border-color: rgba(180, 83, 9, 0.35);
+}
+
+.reqchip[data-tone="bad"] {
+  color: #c81e45;
+  border-color: rgba(200, 30, 69, 0.35);
+}
+
+.reqsheet-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  padding: 0.625rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.reqsec-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.375rem;
+  margin: 0 0 0.25rem;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  color: var(--blue);
+}
+
+.reqsec-note {
+  font-size: 0.625rem;
+  font-weight: 700;
+  color: #b45309;
+}
+
+.reqcode {
+  margin: 0;
+  padding: 0.5rem;
+  max-height: none;
+  overflow-x: auto;
+  background: var(--tint-1);
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--fg-soft);
+  white-space: pre-wrap;
+  word-break: break-word;
+}

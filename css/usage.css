@@ -1,0 +1,321 @@
+/* 用量页：三个大数字、明细表、每日柱状、两张排行 */
+
+.usagerange {
+  display: flex;
+  margin-top: 0.75rem;
+}
+
+/* 三个大数字一排，用细分隔线分列，不做成三张卡
+   卡片一多整块就碎，数字和标签谁大谁小也看不出来 */
+.usagestats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 0.875rem;
+  padding: 0.625rem 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.usagestat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.0625rem;
+  min-width: 0;
+  padding: 0 0.75rem;
+}
+
+.usagestat + .usagestat {
+  border-left: 1px solid var(--line);
+}
+
+.usagestat:first-child {
+  padding-left: 0;
+}
+
+.usagestat:last-child {
+  padding-right: 0;
+}
+
+.usagestat-val {
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--blue);
+}
+
+.usagestat-key {
+  font-size: 0.6875rem;
+  color: var(--fg-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.usagestat-note {
+  font-size: 0.5625rem;
+  line-height: 1.35;
+  color: var(--fg-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 明细退成两列表格，只靠对齐和间距分区，不再一块一块画框 */
+.usagemeta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.3125rem 1.25rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+}
+
+.usagemeta-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.1875rem 0;
+  border-bottom: 1px dashed rgba(var(--accent-rgb), 0.14);
+}
+
+.usagemeta-key {
+  margin: 0;
+  font-size: 0.6875rem;
+  color: var(--fg-dim);
+  white-space: nowrap;
+}
+
+.usagemeta-val {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  white-space: nowrap;
+}
+
+/* 成功率低于 90% 直接标红，跟日志页的错误色一致 */
+.usagemeta-val[data-tone="bad"] {
+  color: #c81e45;
+}
+
+.usagehint {
+  margin: 0.625rem 0 0;
+  font-size: 0.625rem;
+  line-height: 1.5;
+  color: var(--fg-dim);
+}
+
+/* 每日柱状：一根一列，底部日期横排，顶上是数字
+   高度用百分比，整块高度跟着视口走，窄屏也不会挤成一条线 */
+.usagechart {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.1875rem;
+  height: clamp(6rem, 22dvh, 9rem);
+  margin-top: 0.75rem;
+  padding-bottom: 0.125rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.usagechart::-webkit-scrollbar {
+  display: none;
+}
+
+.usagecol {
+  flex: 1 0 1.5rem;
+  min-width: 1.25rem;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.1875rem;
+}
+
+.usagebarwrap {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+/* 柱子从底部长上来，每根错开一点，扫过去像在长 */
+.usagebar {
+  width: 74%;
+  min-height: 0;
+  background: linear-gradient(
+    180deg,
+    var(--blue),
+    color-mix(in srgb, var(--blue) 68%, #fff)
+  );
+  border-radius: 0.125rem 0.125rem 0 0;
+  animation: columnin 0.62s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  animation-delay: var(--delay, 0ms);
+}
+
+@keyframes columnin {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--h, 0%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .usageline,
+  .usagebar,
+  .usagelinebar i {
+    animation: none;
+  }
+}
+
+.usagecol[data-on="0"] .usagebar {
+  background: rgba(var(--accent-rgb), 0.18);
+}
+
+.usagebarnum {
+  font-size: 0.5625rem;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-dim);
+  white-space: nowrap;
+}
+
+.usagebarday {
+  flex: none;
+  font-size: 0.5625rem;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-dim);
+  white-space: nowrap;
+}
+
+/* 排行：一行三项，名字、条、数字，第二行小字补明细 */
+.usagelist {
+  list-style: none;
+  margin: 0.375rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 一行一条，不再一块一块画框：去掉底色和边框，只留一条细分隔线
+   每行错开一点时间淡入，列表出现时不至于整块砰地砸下来 */
+.usageline {
+  display: grid;
+  grid-template-columns: minmax(4.5rem, 34%) minmax(0, 1fr) auto;
+  grid-template-areas:
+    "name bar num"
+    "sub sub sub";
+  align-items: center;
+  gap: 0.1875rem 0.5rem;
+  padding: 0.5rem 0.125rem;
+  border-bottom: 1px solid rgba(var(--accent-rgb), 0.12);
+  animation: usagein 0.42s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  animation-delay: var(--delay, 0ms);
+}
+
+.usageline:last-child {
+  border-bottom: none;
+}
+
+@keyframes usagein {
+  from {
+    opacity: 0;
+    transform: translateY(0.375rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.usagelinename {
+  grid-area: name;
+  min-width: 0;
+  font-size: 0.7188rem;
+  font-weight: 700;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usagelinebar {
+  grid-area: bar;
+  height: 0.4375rem;
+  background: rgba(var(--accent-rgb), 0.1);
+  border-radius: 62.5rem;
+  overflow: hidden;
+}
+
+/* 条用动画长出来，宽度写进变量交给 keyframes，不用等下一帧再改样式 */
+.usagelinebar i {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: 62.5rem;
+  background: linear-gradient(
+    90deg,
+    var(--blue),
+    color-mix(in srgb, var(--blue) 58%, #fff)
+  );
+  animation: barin 0.8s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  animation-delay: calc(var(--delay, 0ms) + 60ms);
+}
+
+@keyframes barin {
+  from {
+    width: 0;
+  }
+  to {
+    width: var(--w, 0%);
+  }
+}
+
+.usagelinenum {
+  grid-area: num;
+  font-size: 0.7188rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--blue);
+  white-space: nowrap;
+}
+
+.usagelinesub {
+  grid-area: sub;
+  font-size: 0.5625rem;
+  line-height: 1.4;
+  color: var(--fg-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.usageempty {
+  font-size: 0.6875rem;
+  color: var(--fg-dim);
+}
+
+/* 早于 token 统计的老记录：整行压暗，一眼区分「没数据」和「零消耗」 */
+.usageline[data-stale="1"] {
+  border-bottom-style: dashed;
+}
+
+.usageline[data-stale="1"] .usagelinename,
+.usageline[data-stale="1"] .usagelinenum {
+  color: var(--fg-dim);
+  font-weight: 600;
+}
+
+.usageline[data-stale="1"] .usagelinebar {
+  opacity: 0.3;
+}

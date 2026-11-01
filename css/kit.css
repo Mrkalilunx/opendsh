@@ -1,0 +1,286 @@
+/* 通用件：面板、按钮、筛选胶囊 */
+
+.panel {
+  width: min(35rem, 100%);
+  padding: 1.25rem;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 0.3125rem;
+  box-shadow: 0.625rem 0.625rem 2px rgba(var(--accent-rgb), 0.16);
+}
+
+.panel-wide {
+  width: min(42.5rem, 100%);
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.625rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.panel-side {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* 标题不许被右侧说明挤窄换行，说明自己负责收缩和截断 */
+.panel-title {
+  flex: none;
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 800;
+  white-space: nowrap;
+  color: var(--blue);
+}
+
+.panel-note {
+  min-width: 0;
+  font-size: 0.719rem;
+  color: var(--fg-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  flex-wrap: wrap;
+  margin-top: 0.25rem;
+}
+
+.panel-state {
+  margin: 0;
+  font-size: 0.719rem;
+  color: var(--fg-dim);
+}
+
+/* 空状态不占高度，聊天页底边的输入行才能贴到卡片内边 */
+.panel-state:empty {
+  display: none;
+}
+
+.panel-state[data-tone="ok"] {
+  color: #14804a;
+}
+
+.panel-state[data-tone="bad"] {
+  color: #c81e45;
+}
+
+.btn {
+  font: inherit;
+  font-size: 0.781rem;
+  font-weight: 700;
+  padding: 0.5rem 1rem;
+  color: var(--blue);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+  cursor: pointer;
+  box-shadow: 0.25rem 0.25rem 1px rgba(var(--accent-rgb), 0.12);
+  transition: all 0.18s;
+}
+
+.btn:hover {
+  box-shadow: -0.25rem 0.25rem 1px rgba(var(--accent-rgb), 0.12);
+}
+
+.btn:active {
+  box-shadow: none;
+  transform: translate(2px, 2px);
+}
+
+.btn-main {
+  color: #fff;
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
+.btn-main:hover {
+  filter: brightness(1.06);
+}
+
+.btn-small {
+  font-size: 0.719rem;
+  padding: 0.3125rem 0.6875rem;
+  box-shadow: 0.1875rem 0.1875rem 1px rgba(var(--accent-rgb), 0.12);
+}
+
+.btn-small:hover {
+  box-shadow: -0.1875rem 0.1875rem 1px rgba(var(--accent-rgb), 0.12);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+  box-shadow: none;
+}
+
+.chips {
+  display: flex;
+  gap: 0.375rem;
+  flex-wrap: wrap;
+}
+
+.chip {
+  font: inherit;
+  font-size: 0.719rem;
+  font-weight: 700;
+  padding: 0.25rem 0.6875rem;
+  color: var(--fg-dim);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 0.1875rem;
+  cursor: pointer;
+  transition: all 0.18s;
+}
+
+.chip:hover {
+  color: var(--blue);
+}
+
+.chip[aria-pressed="true"] {
+  color: var(--blue);
+  background: var(--tint-2);
+  border-color: var(--line-strong);
+}
+
+/* 日期下拉：触发器按输入框画，右侧一个下箭头，不像按钮 */
+.daypick {
+  position: relative;
+  min-width: 0;
+}
+
+.daypick-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4375rem;
+  width: 100%;
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 0.375rem 0.5rem;
+  color: var(--fg);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 0.1875rem;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.18s, box-shadow 0.18s;
+}
+
+.daypick-btn:hover {
+  border-color: var(--line-strong);
+}
+
+.daypick-btn[aria-expanded="true"] {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.18);
+}
+
+.daypick-label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 下箭头：两条边框转 45 度，展开时翻成上箭头 */
+.daypick-caret {
+  flex: none;
+  width: 0.375rem;
+  height: 0.375rem;
+  margin-top: -0.1875rem;
+  border-right: 0.0625rem solid var(--blue);
+  border-bottom: 0.0625rem solid var(--blue);
+  transform: rotate(45deg);
+  transition: transform 0.18s ease, margin-top 0.18s ease;
+}
+
+.daypick-btn[aria-expanded="true"] .daypick-caret {
+  margin-top: 0.1875rem;
+  transform: rotate(-135deg);
+}
+
+.daypick-drawer {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 0.25rem);
+  left: 0;
+  right: auto;
+  width: 100%;
+  min-width: 9rem;
+  max-height: 11rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.25rem;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+  box-shadow: 0.375rem 0.375rem 2px rgba(var(--accent-rgb), 0.14);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(var(--accent-rgb), 0.3) transparent;
+}
+
+.daypick-drawer::-webkit-scrollbar {
+  width: 0.3125rem;
+}
+
+.daypick-drawer::-webkit-scrollbar-thumb {
+  border-radius: 0.1875rem;
+  background: rgba(var(--accent-rgb), 0.28);
+}
+
+.dayitem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  font: inherit;
+  font-size: 0.719rem;
+  padding: 0.3125rem 0.375rem;
+  color: var(--fg);
+  background: none;
+  border: 0;
+  border-radius: 0.1875rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.dayitem:hover {
+  background: var(--tint-1);
+}
+
+.dayitem[aria-selected="true"] {
+  color: var(--blue);
+  background: var(--tint-2);
+  font-weight: 700;
+}
+
+.dayitem-name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dayitem-n {
+  flex: none;
+  color: var(--fg-dim);
+  font-size: 0.656rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.dayitem[aria-selected="true"] .dayitem-n {
+  color: var(--blue);
+}

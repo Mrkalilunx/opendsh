@@ -1,0 +1,505 @@
+/* 组件层：白卡片、蓝色细边、实心错位投影 */
+
+.stage {
+  width: min(21.25rem, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1.125rem 1.25rem 1.125rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 0.3125rem;
+  box-shadow: var(--shift);
+  transition: all 0.2s;
+}
+
+/* 徽标和 DSH 并排一行，原来竖着摞在标题上面，空出一大截 */
+.herohead {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+.stage:hover {
+  box-shadow: var(--shift-flip);
+}
+
+.badge {
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 0.3125rem;
+  background: #fff;
+  border: 1px solid var(--line);
+  box-shadow: 0.25rem 0.25rem 1px rgba(var(--accent-rgb), 0.16);
+}
+
+.badge .logo {
+  width: 1.4rem;
+  height: 1.4rem;
+  color: var(--blue);
+}
+
+.title {
+  margin: 0;
+  font-size: 1.875rem;
+  line-height: 1;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--blue);
+}
+
+.meta {
+  margin: 0.25rem 0 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4375rem;
+  font-size: 0.719rem;
+  color: var(--fg-dim);
+}
+
+.facts {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3125rem;
+  margin-top: 0;
+  padding-top: 0.625rem;
+  border-top: 1px dashed rgba(var(--accent-rgb), 0.18);
+}
+
+.fact {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.719rem;
+}
+
+.fact-key {
+  flex: none;
+  color: var(--fg-dim);
+}
+
+.fact-val {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.6875rem;
+  text-align: left;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* session 要完整显示，窄屏放不下就横向滑动，不做省略 */
+#sessval {
+  font-size: 0.625rem;
+  overflow-x: auto;
+  text-overflow: clip;
+  scrollbar-width: none;
+}
+
+#sessval::-webkit-scrollbar {
+  display: none;
+}
+
+.fact-btn {
+  flex: none;
+  font: inherit;
+  font-size: 0.656rem;
+  font-weight: 700;
+  padding: 2px 0.5rem;
+  color: var(--blue);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 0.1875rem;
+  cursor: pointer;
+  transition: all 0.18s;
+}
+
+.fact-btn:hover {
+  border-color: var(--line-strong);
+  box-shadow: 2px 2px 1px rgba(var(--accent-rgb), 0.12);
+}
+
+.fact-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+  box-shadow: none;
+}
+
+.dot {
+  width: 0.4375rem;
+  height: 0.4375rem;
+  border-radius: 50%;
+  background: #f59e0b;
+  transition: background 200ms ease;
+}
+
+.meta[data-online="true"] .dot {
+  background: #16a34a;
+  animation: fade 2.4s ease-in-out infinite;
+}
+
+@keyframes fade {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* 调试页按钮行：主操作在前，清空退到右侧 */
+.debugacts {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+/* 主页监控卡：端口、CPU/GPU/内存三条读数，再挂数据库和服务状态 */
+.syscard {
+  width: min(21.25rem, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.8125rem 1rem 0.75rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 0.3125rem;
+  box-shadow: var(--shift);
+}
+
+.syshead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px dashed rgba(var(--accent-rgb), 0.18);
+}
+
+.sysport {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--fg-dim);
+}
+
+.sysport b {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.8125rem;
+  color: var(--blue);
+}
+
+.sysaddr {
+  min-width: 0;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.625rem;
+  color: var(--fg-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sysrow {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sysrow-name {
+  font-size: 0.656rem;
+  font-weight: 700;
+  color: var(--fg-dim);
+}
+
+.sysrow-val {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.6875rem;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* 每核一根竖条，高度就是该核占用，悬停看频率 */
+.syssegs {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 0.75rem;
+  min-width: 0;
+}
+
+.syssegs i {
+  position: relative;
+  flex: 1;
+  height: 100%;
+  background: var(--tint-2);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.syssegs i::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--v, 0%);
+  background: var(--blue);
+  border-radius: 1px;
+  transition: height 300ms ease;
+}
+
+.sysbar {
+  height: 0.375rem;
+  min-width: 0;
+  background: var(--tint-2);
+  border-radius: 0.1875rem;
+  overflow: hidden;
+}
+
+.sysbar i {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: var(--blue);
+  border-radius: inherit;
+  transition: width 300ms ease;
+}
+
+.sysnote {
+  margin: 0;
+  font-size: 0.625rem;
+  color: var(--fg-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* GPU 型号和温度挂在 GPU 那一行下面，左边对齐到进度条 */
+.syssub {
+  margin: -0.25rem 0 0 2.5rem;
+}
+
+.syssec {
+  margin-top: 0.125rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed rgba(var(--accent-rgb), 0.18);
+}
+
+.syssec-title {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: 0.656rem;
+  font-weight: 800;
+  color: var(--fg-dim);
+}
+
+.syssvc {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  /* 数据回来之前这一行是空的，高度先按一行字号留好，卡片不会先小后大 */
+  height: 1rem;
+  flex: none;
+  padding-top: 0.375rem;
+  border-top: 1px dashed rgba(var(--accent-rgb), 0.18);
+  overflow: hidden;
+  box-sizing: content-box;
+}
+
+.syssvc .svc {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 0.625rem;
+  color: var(--fg-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.syssvc .svc::before {
+  content: "";
+  flex: none;
+  width: 0.3125rem;
+  height: 0.3125rem;
+  border-radius: 50%;
+  background: #dc2626;
+}
+
+.syssvc .svc[data-run="true"] {
+  color: var(--fg);
+}
+
+.syssvc .svc[data-run="true"]::before {
+  background: #16a34a;
+}
+
+/* 支持的接口：一条一个端点，左侧圆点用绿红两态，关掉的是灰色 */
+.apicard {
+  width: min(21.25rem, 100%);
+  padding: 0.8125rem 1rem 0.75rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 0.3125rem;
+  box-shadow: var(--shift);
+}
+
+.apihead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px dashed rgba(var(--accent-rgb), 0.18);
+}
+
+.apititle {
+  font-size: 0.6875rem;
+  font-weight: 800;
+  color: var(--fg-dim);
+}
+
+.apicount {
+  font-size: 0.625rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-dim);
+}
+
+.apilist {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.apirow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.375rem 0.5rem;
+}
+
+/* 状态点：能用绿色，关掉灰色，接口本身出错才用红色 */
+.apidot {
+  flex: none;
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 50%;
+  background: #b9b9cc;
+  align-self: center;
+}
+
+.apirow[data-on="true"] .apidot {
+  background: #16a34a;
+}
+
+.apirow[data-on="false"] .apidot {
+  background: #b9b9cc;
+}
+
+/* 点了但没开起来的端点，用红点区分“没开”和“开了却用不了” */
+.apirow[data-on="broken"] .apidot {
+  background: #dc2626;
+}
+
+.apirow[data-on="false"] {
+  opacity: 0.62;
+}
+
+.apiline {
+  display: flex;
+  align-items: baseline;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.apimethod {
+  flex: none;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  color: var(--blue);
+}
+
+.apirow[data-on="false"] .apimethod {
+  color: var(--fg-dim);
+}
+
+.apipath {
+  min-width: 0;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.625rem;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.apinote {
+  grid-column: 2;
+  font-size: 0.5625rem;
+  color: var(--fg-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 数据库信息：四格固定两行，断线时版本那格显示未连接并整块标红 */
+.sysdb {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.25rem;
+}
+
+.sysdb-cell {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.375rem;
+  min-width: 0;
+  padding: 0.25rem 0.375rem;
+  background: var(--tint-1);
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+}
+
+.sysdb-cell i {
+  flex: none;
+  font-style: normal;
+  font-size: 0.594rem;
+  color: var(--fg-dim);
+}
+
+/* 版本号比其它格子长，占满一整行 */
+.sysdb-cell.wide {
+  grid-column: span 2;
+}
+
+.sysdb-cell b {
+  min-width: 0;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sysdb[data-ok="false"] .sysdb-cell b {
+  color: #c81e45;
+}
