@@ -114,6 +114,13 @@ function inject(html) {
   return i === -1 ? html + tag : html.slice(0, i) + tag + '\n' + html.slice(i)
 }
 
+// 前端只用 index.html 和 css/ js/ res/ 三个目录，白名单比黑名单靠谱
+// 根目录放什么（模板副本、抓包 dump、单文件版源码）都不会被静态服务吐出去
+function frontonly(file) {
+  if (file === '/index.html' || file === '/favicon.ico') return true
+  return ['/css/', '/js/', '/res/'].some((dir) => file.startsWith(dir))
+}
+
 // ---- 静态与代理分发
 
 async function route(req, res) {
@@ -151,6 +158,11 @@ async function route(req, res) {
   }
 
   let file = p === '/' ? '/index.html' : p
+  // 只放行前端真正用到的这三类，其余一律不对外
+  // 之前按文件名黑名单拦，根目录一有副本（如 ocask-body.json）就照样被 0.0.0.0 吐出去
+  if (!frontonly(file)) {
+    return text(res, 404, types['.txt'], '404 not found')
+  }
   if (file === '/res/ocask-body.json' || file === '/res/proxies.txt') {
     return text(res, 403, types['.txt'], '403 forbidden')
   }
