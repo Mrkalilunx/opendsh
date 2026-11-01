@@ -3,7 +3,7 @@
 .panel {
   width: min(35rem, 100%);
   padding: 1.25rem;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--line);
   border-radius: 0.3125rem;
   box-shadow: 0.625rem 0.625rem 2px rgba(var(--accent-rgb), 0.16);
@@ -35,7 +35,7 @@
   font-size: 1.0625rem;
   font-weight: 800;
   white-space: nowrap;
-  color: var(--blue);
+  color: var(--accent-ink);
 }
 
 .panel-note {
@@ -79,8 +79,8 @@
   font-size: 0.781rem;
   font-weight: 700;
   padding: 0.5rem 1rem;
-  color: var(--blue);
-  background: #fff;
+  color: var(--accent-ink);
+  background: var(--card);
   border: 1px solid var(--line);
   border-radius: 0.25rem;
   cursor: pointer;
@@ -100,6 +100,7 @@
 .btn-main {
   color: #fff;
   background: var(--blue);
+  /* 实心底上的描边跟底色同一档，深色下才不会多出一圈亮边 */
   border-color: var(--blue);
 }
 
@@ -135,7 +136,7 @@
   font-weight: 700;
   padding: 0.25rem 0.6875rem;
   color: var(--fg-dim);
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--line);
   border-radius: 0.1875rem;
   cursor: pointer;
@@ -143,11 +144,16 @@
 }
 
 .chip:hover {
-  color: var(--blue);
+  color: var(--accent-ink);
+}
+
+/* 按下去压一像素，点完知道确实点到了 */
+.chip:active {
+  transform: translateY(1px);
 }
 
 .chip[aria-pressed="true"] {
-  color: var(--blue);
+  color: var(--accent-ink);
   background: var(--tint-2);
   border-color: var(--line-strong);
 }
@@ -168,7 +174,7 @@
   font-size: 0.75rem;
   padding: 0.375rem 0.5rem;
   color: var(--fg);
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--line);
   border-radius: 0.1875rem;
   cursor: pointer;
@@ -181,7 +187,7 @@
 }
 
 .daypick-btn[aria-expanded="true"] {
-  border-color: var(--blue);
+  border-color: var(--accent-ink);
   box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.18);
 }
 
@@ -199,8 +205,8 @@
   width: 0.375rem;
   height: 0.375rem;
   margin-top: -0.1875rem;
-  border-right: 0.0625rem solid var(--blue);
-  border-bottom: 0.0625rem solid var(--blue);
+  border-right: 0.0625rem solid var(--accent-ink);
+  border-bottom: 0.0625rem solid var(--accent-ink);
   transform: rotate(45deg);
   transition: transform 0.18s ease, margin-top 0.18s ease;
 }
@@ -222,12 +228,25 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 0.25rem;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--line);
   border-radius: 0.25rem;
   box-shadow: 0.375rem 0.375rem 2px rgba(var(--accent-rgb), 0.14);
   scrollbar-width: thin;
   scrollbar-color: rgba(var(--accent-rgb), 0.3) transparent;
+  animation: daydrop 0.16s ease-out backwards;
+}
+
+/* 抽屉从触发器下沿展开，跟模型选择器保持同一套手感 */
+@keyframes daydrop {
+  from {
+    opacity: 0;
+    transform: translateY(-0.25rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .daypick-drawer::-webkit-scrollbar {
@@ -261,7 +280,7 @@
 }
 
 .dayitem[aria-selected="true"] {
-  color: var(--blue);
+  color: var(--accent-ink);
   background: var(--tint-2);
   font-weight: 700;
 }
@@ -282,5 +301,5 @@
 }
 
 .dayitem[aria-selected="true"] .dayitem-n {
-  color: var(--blue);
+  color: var(--accent-ink);
 }

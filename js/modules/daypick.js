@@ -92,7 +92,7 @@ export function mountdaypick(opts) {
 
       const n = document.createElement('span')
       n.className = 'dayitem-n'
-      n.textContent = it.n ? String(it.n) : '—'
+      n.textContent = String(it.n || 0)
 
       row.append(name, n)
       row.addEventListener('click', () => {

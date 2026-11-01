@@ -47,9 +47,11 @@ function setstate(text, tone) {
   node.dataset.tone = tone
 }
 
-function makerow(item) {
+function makerow(item, staticrow = false) {
   const li = document.createElement('li')
   li.className = `logrow logrow-${item.level}`
+  // 整表重绘时全部带入场动画会整片闪一下，批量行直接落位
+  if (staticrow) li.dataset.static = '1'
 
   const time = document.createElement('span')
   time.className = 'logtime'
@@ -115,7 +117,7 @@ function paint() {
   if (!list) return
   list.innerHTML = ''
   const frag = document.createDocumentFragment()
-  for (const item of state.items) if (match(item)) frag.appendChild(makerow(item))
+  for (const item of state.items) if (match(item)) frag.appendChild(makerow(item, true))
   list.appendChild(frag)
   count()
   tail()
@@ -169,6 +171,8 @@ async function load() {
     if (doc.fallback) setstate('日志库未连接，只显示内存缓冲', 'warn')
     paint()
   } catch (err) {
+    // 读失败就把占位行撤了，别让骨架一直转着像还在等
+    el('loglist')?.replaceChildren()
     setstate(`读取失败：${err.message}`, 'bad')
   }
 }
@@ -240,9 +244,20 @@ function setpane(name) {
   // 日期下拉只对日志和请求有意义，进程分栏用不上；工具条整块收起，免得留一条空边
   const tools = document.querySelector('.logbar')
   if (tools) tools.hidden = pane === 'proc'
-  el('logpane-run').hidden = pane !== 'run'
-  el('logpane-req').hidden = pane !== 'req'
-  el('logpane-proc').hidden = pane !== 'proc'
+  // 三块分栏各管各的显隐，切换时整块淡上来，不至于硬切
+  for (const name2 of ['run', 'req', 'proc']) {
+    const node = el(`logpane-${name2}`)
+    if (!node) continue
+    const show = pane === name2
+    if (show && node.hidden) {
+      node.hidden = false
+      node.classList.remove('panein')
+      void node.offsetWidth
+      node.classList.add('panein')
+    } else if (!show) {
+      node.hidden = true
+    }
+  }
 
   if (pane === 'req') {
     disconnect()

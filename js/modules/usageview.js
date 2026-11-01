@@ -40,12 +40,66 @@ function say(text, tone = '') {
   node.dataset.tone = tone
 }
 
+// 数字从上一个值滚到新值，首屏也从 0 滚上来，不做「啪」一下直接落值
+// 系统开了减弱动效、或者环境没有 rAF，就老老实实直接写值
+const reduce = () =>
+  typeof window !== 'undefined' &&
+  window.matchMedia &&
+  window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+// 滚动时的单位按终点定死：跟着中间值换单位会在 9999 和 1.0 万之间来回跳
+function unitfmt(target) {
+  const t = Number(target) || 0
+  if (t >= 100000000) return (v) => `${(v / 100000000).toFixed(2)} 亿`
+  if (t >= 10000) return (v) => `${(v / 10000).toFixed(t >= 1000000 ? 0 : 1)} 万`
+  return (v) => String(Math.round(v))
+}
+
+// 数值滚动：from 取上次画到哪，中途被打断也能从当前显示值接着滚
+function roll(node, value, fmt, span = 700) {
+  const to = Number(value) || 0
+  if (!fmt) fmt = unitfmt(to)
+  const from = Number(node.dataset.shown) || 0
+  if (reduce() || typeof requestAnimationFrame !== 'function' || from === to) {
+    node.__rollid = (node.__rollid || 0) + 1
+    node.textContent = fmt(to)
+    node.dataset.shown = String(to)
+    return
+  }
+  // 上一轮还没滚完就又来了新值：作废旧那轮，否则两个循环抢着写同一个节点
+  const id = (node.__rollid = (node.__rollid || 0) + 1)
+  // 先把起点写上，不然第一帧还没到之前这里是空的，看起来像闪了一下
+  node.textContent = fmt(from)
+  const start = performance.now()
+  const step = (now) => {
+    if (node.__rollid !== id) return
+    const t = Math.min(1, (now - start) / span)
+    // 缓出，前段快后段稳，数字不会匀速爬
+    const k = 1 - (1 - t) ** 3
+    const tick = from + (to - from) * k
+    node.textContent = fmt(tick)
+    node.dataset.shown = String(tick)
+    if (t < 1) requestAnimationFrame(step)
+    else {
+      node.textContent = fmt(to)
+      node.dataset.shown = String(to)
+    }
+  }
+  requestAnimationFrame(step)
+}
+
+// 百分比也按数滚，小数位固定住，宽度不会来回抽
+function rollpct(node, value, digits = 1, suffix = '%') {
+  if (!node) return
+  roll(node, value, (v) => `${v.toFixed(digits)}${suffix}`, 620)
+}
+
 // 四个大数字：主值用缩写，副行给精确值或比例
 function tile(val, note, value, extra = '') {
   const vnode = el(val)
   const nnode = el(note)
   if (vnode) {
-    vnode.textContent = human(value)
+    roll(vnode, value)
     vnode.title = exact(value)
   }
   if (nnode) nnode.textContent = extra
@@ -84,7 +138,7 @@ function paint(doc) {
   const pick = (id, value) => {
     const node = el(id)
     if (!node) return
-    node.textContent = human(value)
+    roll(node, value)
     node.title = exact(value)
   }
   pick('usagein', range.ptok)
@@ -92,29 +146,33 @@ function paint(doc) {
   pick('usageout', range.ctok)
   pick('usagereason', range.reasontok)
 
-  // 缓存命中率：命中量相对输入量，没有输入时留横线
+  // 缓存命中率：命中量相对输入量，没有输入时给 0%
   const cachenode = el('usagecache')
   if (cachenode) {
     const all = Number(range.ptok) || 0
     const hit = Math.min(Number(range.cachetok) || 0, all)
     const rate = all ? (hit / all) * 100 : 0
-    cachenode.textContent = all ? `${rate.toFixed(rate >= 10 ? 1 : 2)}%` : '—'
+    // 没有输入时给 0%，不留横线，格子宽度稳定
+    rollpct(cachenode, all ? rate : 0, all && rate < 10 ? 2 : 1)
     cachenode.title = all ? `命中 ${exact(hit)} / 输入 ${exact(all)}` : '没有输入'
   }
 
-  // 成功率与耗时：没有请求时留横线，0% 会让人误以为全失败
+  // 成功率与耗时：没有请求时也按零值给，横线看着像没加载出来
   const oknode = el('usageok')
   if (oknode) {
     const calls = Number(q.calls) || 0
-    const rate = calls ? Math.round(((Number(q.ok) || 0) / calls) * 100) : 0
-    oknode.textContent = calls ? `${rate}%` : '—'
+    const rate = calls ? ((Number(q.ok) || 0) / calls) * 100 : 0
+    rollpct(oknode, calls ? rate : 0, 0)
     oknode.dataset.tone = calls && rate < 90 ? 'bad' : ''
     oknode.title = calls ? `${exact(q.ok)} / ${exact(calls)} 次成功` : '没有请求'
   }
   const msnode = el('usagems')
   if (msnode) {
     const ms = Number(q.avgms) || 0
-    msnode.textContent = ms ? (ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(2)}s`) : '—'
+    if (ms) {
+      // 毫秒按整数滚，超过一秒换成秒并保留两位，换挡时看不出跳变
+      roll(msnode, ms, (v) => (v < 1000 ? `${Math.round(v)}ms` : `${(v / 1000).toFixed(2)}s`), 620)
+    } else msnode.textContent = '0ms'
     msnode.title = ms ? `最慢 ${exact(q.maxms)} 毫秒` : '没有请求'
   }
 
@@ -167,7 +225,8 @@ function paintchart(trend) {
 
     const num = document.createElement('span')
     num.className = 'usagebarnum'
-    num.textContent = total > 0 ? human(total) : ''
+    // 每天顶上的数也从 0 滚上去，跟柱子一起长，切范围能看出量怎么变
+    if (total > 0) roll(num, total, null, 620)
 
     const day = document.createElement('span')
     day.className = 'usagebarday'
@@ -233,8 +292,9 @@ function paintlist(id, noteid, list, nameof) {
 
     const num = document.createElement('span')
     num.className = 'usagelinenum'
-    // 老记录没有 token，写 0 会像是没消耗，用横线表示没数据
-    num.textContent = stale ? '—' : human(total)
+    // 老记录没有 token，统一写 0，靠下面的说明区分「没数据」和「零消耗」
+    if (stale) num.textContent = '0'
+    else roll(num, total, null, 620)
     num.title = stale ? '这批请求早于 token 统计，上游没有回用量' : exact(total)
 
     const sub = document.createElement('span')
@@ -279,6 +339,10 @@ async function pull() {
     state.last = doc.at || Date.now()
     paint(doc)
   } catch (err) {
+    // 读失败就把骨架撤了，留着转只会让人以为还在加载
+    el('usagechart')?.replaceChildren()
+    el('usagemodels')?.replaceChildren()
+    el('usagesources')?.replaceChildren()
     say(`读取失败：${err.message}`, 'bad')
   } finally {
     state.busy = false

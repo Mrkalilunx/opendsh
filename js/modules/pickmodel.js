@@ -10,7 +10,7 @@ const state = {
 const el = (id) => document.getElementById(id)
 
 function syncname(id) {
-  el('pickname').textContent = id || '未选择模型'
+  el('pickname').textContent = id || '未选择'
 }
 
 function select(id) {
@@ -26,8 +26,16 @@ function open() {
   state.open = true
   el('drawer').hidden = false
   el('pickerbtn').setAttribute('aria-expanded', 'true')
-  const current = [...el('picklist').children].find((n) => n.getAttribute('aria-selected') === 'true')
-  if (current) current.focus()
+  const list = el('picklist')
+  const current = [...list.children].find((n) => n.getAttribute('aria-selected') === 'true')
+  if (!current) return
+  current.focus({ preventScroll: true })
+  // 78 个模型时当前项往往在列表外，把它挪到可视区中间
+  // 只动列表自己的 scrollTop，不用 scrollIntoView，那个会把整页也一起滚
+  const box = list.getBoundingClientRect()
+  const row = current.getBoundingClientRect()
+  const shift = row.top - box.top - (box.height - row.height) / 2
+  if (Math.abs(shift) > 1) list.scrollTop += shift
 }
 
 function close() {
@@ -86,13 +94,16 @@ async function loadmodels() {
     state.models = (doc.data || []).map((m) => m.id)
     if (!state.models.length) throw new Error('列表为空')
   } catch (err) {
+    // 先清掉占位骨架，再摆一行失败提示，两者不能叠着
+    const list = el('picklist')
+    list.innerHTML = ''
     const row = document.createElement('button')
     row.type = 'button'
     row.className = 'picker-row'
     row.textContent = `模型列表不可用：${err.message}`
     row.disabled = true
-    el('picklist').appendChild(row)
-    syncname('加载失败')
+    list.appendChild(row)
+    syncname('未选择')
     return
   }
 

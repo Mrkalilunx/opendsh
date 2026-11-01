@@ -41,7 +41,7 @@
   font-weight: 800;
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
-  color: var(--blue);
+  color: var(--accent-ink);
 }
 
 .usagestat-key {
@@ -153,7 +153,7 @@
   background: linear-gradient(
     180deg,
     var(--blue),
-    color-mix(in srgb, var(--blue) 68%, #fff)
+    color-mix(in srgb, var(--blue) 68%, var(--card))
   );
   border-radius: 0.125rem 0.125rem 0 0;
   animation: columnin 0.62s cubic-bezier(0.22, 0.61, 0.36, 1) both;
@@ -219,8 +219,22 @@
   gap: 0.1875rem 0.5rem;
   padding: 0.5rem 0.125rem;
   border-bottom: 1px solid rgba(var(--accent-rgb), 0.12);
-  animation: usagein 0.42s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  animation: usagein 0.42s cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
   animation-delay: var(--delay, 0ms);
+}
+
+/* 占位行跟真行同一套栅格，数据到了直接换内容，版式不跳 */
+.ghostline .ghostname {
+  grid-area: name;
+}
+
+.ghostline .ghostbar {
+  grid-area: bar;
+  height: 0.4375rem;
+}
+
+.ghostline .ghostnum {
+  grid-area: num;
 }
 
 .usageline:last-child {
@@ -266,7 +280,7 @@
   background: linear-gradient(
     90deg,
     var(--blue),
-    color-mix(in srgb, var(--blue) 58%, #fff)
+    color-mix(in srgb, var(--blue) 58%, var(--card))
   );
   animation: barin 0.8s cubic-bezier(0.22, 0.61, 0.36, 1) both;
   animation-delay: calc(var(--delay, 0ms) + 60ms);
@@ -286,7 +300,7 @@
   font-size: 0.7188rem;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
-  color: var(--blue);
+  color: var(--accent-ink);
   white-space: nowrap;
 }
 

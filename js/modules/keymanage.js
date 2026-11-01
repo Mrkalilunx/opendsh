@@ -132,6 +132,8 @@ async function load() {
     render(doc.keys || [])
     says('')
   } catch (err) {
+    // 读失败就把占位行撤了，别让骨架一直转着像还在等
+    el('keylist')?.replaceChildren()
     says(`读取失败：${err.message}`, 'bad')
   }
 }

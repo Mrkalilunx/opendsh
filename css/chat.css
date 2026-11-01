@@ -28,10 +28,38 @@
   flex-direction: column;
   max-height: min(40dvh, 20rem);
   overflow: hidden;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--line-strong);
   border-radius: 0.3125rem;
   box-shadow: 0.5rem 0.5rem 2px rgba(var(--accent-rgb), 0.14);
+  /* 跟主页模型抽屉一样的展开手感，这里自带一份，不跨文件依赖 */
+  animation: chatdrop 0.16s ease-out backwards;
+}
+
+@keyframes chatdrop {
+  from {
+    opacity: 0;
+    transform: translateY(-0.375rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 历史对话和人设面板各自贴住触发器那侧，宽度收在 19rem 内
+   宽屏上原来铺满 35rem 面板，一条记录拉得老长，扫读费劲 */
+#chatmenu,
+#chatpersonamenu {
+  width: min(19rem, calc(100% - 1.5rem));
+}
+
+#chatmenu {
+  left: auto;
+}
+
+#chatpersonamenu {
+  right: auto;
 }
 
 
@@ -43,7 +71,7 @@
   padding: 0.5625rem 0.75rem;
   font-size: 0.75rem;
   font-weight: 700;
-  color: var(--blue);
+  color: var(--accent-ink);
   border-bottom: 1px solid var(--line);
 }
 
@@ -69,9 +97,17 @@
   cursor: pointer;
 }
 
+.chat-menu-row {
+  transition: background-color 0.14s ease, border-color 0.14s ease;
+}
+
 .chat-menu-row:hover {
   background: var(--tint-1);
   border-color: var(--line);
+}
+
+.chat-menu-row:active {
+  transform: scale(0.995);
 }
 
 .chat-menu-row[aria-current="true"] {
@@ -128,10 +164,33 @@
   color: var(--fg);
 }
 
+/* 新气泡从下方轻推上来，连续回复时不至于一条条硬蹦
+   打字指示气泡自带跳动动画，这里排除掉免得两个 animation 打架 */
+.chat-msg:not(.chat-typing) {
+  animation: msgin 0.2s cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
+}
+
+@keyframes msgin {
+  from {
+    opacity: 0;
+    transform: translateY(0.25rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 历史消息重建时不逐条播入场，只有新来的那条滑进来 */
+.chat-msg[data-still="1"] {
+  animation: none;
+}
+
 .chat-msg.me {
   align-self: flex-end;
   color: #fff;
   background: var(--blue);
+  /* 实心底上的描边跟底色同一档，深色下才不会多出一圈亮边 */
   border-color: var(--blue);
 }
 
@@ -299,7 +358,7 @@
   flex-direction: column;
   gap: 0.25rem;
   padding: 0.375rem 0.375rem 0.3125rem 0.5625rem;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--line);
   border-radius: 0.75rem;
   transition: border-color 0.18s;
@@ -357,7 +416,7 @@
 }
 
 .chattool:hover {
-  color: var(--blue);
+  color: var(--accent-ink);
   border-color: var(--line-strong);
 }
 
@@ -380,7 +439,7 @@
 
 .chatpick:hover,
 .chatpick[aria-expanded="true"] {
-  color: var(--blue);
+  color: var(--accent-ink);
   border-color: var(--line-strong);
 }
 
@@ -400,7 +459,7 @@
   flex: none;
   padding: 0 0.3125rem;
   font-size: 0.594rem;
-  color: var(--blue);
+  color: var(--accent-ink);
   border: 1px solid var(--line);
   border-radius: 62.5rem;
 }
@@ -449,7 +508,7 @@
 }
 
 .chat-menu-row[aria-current="true"] .chat-dot {
-  background: var(--blue);
+  background: var(--accent-ink);
 }
 
 .chat-tick {
@@ -457,7 +516,7 @@
   width: 0.75rem;
   font-size: 0.75rem;
   text-align: center;
-  color: var(--blue);
+  color: var(--accent-ink);
 }
 
 .chat-attach {
@@ -493,7 +552,7 @@
 }
 
 .chat-alt-btn:hover {
-  color: var(--blue);
+  color: var(--accent-ink);
   background: var(--tint-1);
 }
 
@@ -517,7 +576,7 @@
 }
 
 .chat-think-head:hover {
-  color: var(--blue);
+  color: var(--accent-ink);
 }
 
 .chat-think-body {
@@ -527,6 +586,18 @@
   color: var(--fg-dim);
   white-space: pre-wrap;
   word-break: break-word;
+  animation: thinkopen 0.18s ease-out backwards;
+}
+
+@keyframes thinkopen {
+  from {
+    opacity: 0;
+    transform: translateY(-0.1875rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 /* 长按菜单：透明遮罩接外部点击，卡片按按点定位 */
@@ -538,14 +609,29 @@
 
 .chat-act-card {
   position: fixed;
+  /* 长按菜单只放三四个动作，宽度收在 12rem，别拉成一条长条 */
   min-width: 9.5rem;
+  max-width: 12rem;
   padding: 0.3125rem;
   display: flex;
   flex-direction: column;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--line-strong);
   border-radius: 0.625rem;
   box-shadow: 0 0.5rem 1.5rem rgba(var(--accent-rgb), 0.2);
+  animation: actpop 0.14s cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
+}
+
+/* 从按点位置轻轻弹出，起点缩到 0.94，不至于从中间放大得夸张 */
+@keyframes actpop {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .chat-act-row {

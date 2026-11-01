@@ -1,12 +1,14 @@
 // 主页监控：端口、服务、CPU/GPU/内存、数据库，进首页才轮询
 
+import { setflash } from '../lib/flash.js'
+
 const el = (id) => document.getElementById(id)
 
 const state = { timer: null, busy: false }
 
 function pct(n) {
   const v = Number(n)
-  if (!Number.isFinite(v)) return '—'
+  if (!Number.isFinite(v)) return '0%'
   return `${Math.round(v)}%`
 }
 
@@ -139,45 +141,46 @@ function renderapis(list, up) {
   }
 
   const badge = el('apicount')
-  if (badge) badge.textContent = rows.length ? `${usable} / ${rows.length} 可用` : '—'
+  if (badge) badge.textContent = rows.length ? `${usable} / ${rows.length} 可用` : '0 / 0 可用'
 }
 
 function render(doc) {
-  el('sysport').textContent = String(doc.port || '—')
-  el('sysaddr').textContent = `http://127.0.0.1:${doc.port || '—'}`
+  el('sysport').textContent = String(doc.port || 0)
+  el('sysaddr').textContent = `http://127.0.0.1:${doc.port || 0}`
 
   // CPU：总占用给数字，每核给竖条，频率挂在竖条的悬停提示里
   if (doc.cpu) {
-    el('syscpu').textContent = pct(doc.cpu.pct)
+    setflash(el('syscpu'), pct(doc.cpu.pct))
     fillcores(doc.cpu.cores, doc.freq)
     const text = freqtext(doc.freq)
     el('syscpunote').textContent = `${doc.cpu.cores.length} 核${text ? ` · ${text}` : ''}`
   } else {
-    el('syscpu').textContent = '—'
+    el('syscpu').textContent = '0%'
     fillcores([], doc.freq)
     el('syscpunote').textContent = 'Shizuku 未连接，读不到每核占用'
   }
 
   // GPU：占用靠 gpubusy，温度在 thermal_zone 里，频率这台机器读不到
-  const gpuct = doc.gpu.pct === null || doc.gpu.pct === undefined ? '—' : pct(doc.gpu.pct)
-  el('sysgpu').textContent = gpuct
+  const gpuct = doc.gpu.pct === null || doc.gpu.pct === undefined ? '0%' : pct(doc.gpu.pct)
+  setflash(el('sysgpu'), gpuct)
   fillbar(el('sysgpubar'), doc.gpu.pct)
   const gpunote = [doc.gpu.model, doc.gpu.temp ? `${doc.gpu.temp.toFixed(0)}°C` : ''].filter(Boolean).join(' · ')
-  el('sysgpunote').textContent = gpunote || 'GPU 信息不可用'
+  el('sysgpunote').textContent = gpunote || '0°C'
 
   // 内存：物理内存已用和总量，百分比走同一根条
   const mem = doc.mem || {}
-  el('sysmem').textContent = `${gb(mem.used)} / ${gb(mem.total)}`
+  setflash(el('sysmem'), `${gb(mem.used)} / ${gb(mem.total)}`)
   fillbar(el('sysmembar'), mem.total ? Math.round((mem.used / mem.total) * 1000) / 10 : 0)
 
   // 数据库：连上了才显示版本库名这些，断开就整块标红
   const db = doc.db || {}
   el('sysdb').dataset.ok = String(Boolean(db.ok))
-  el('sysdbver').textContent = db.ok ? db.version || '—' : '未连接'
-  el('sysdbaddr').textContent = db.port ? `${db.host || '127.0.0.1'}:${db.port}` : '—'
-  el('sysdbname').textContent = db.ok ? db.name || '—' : '—'
-  el('sysdbtables').textContent = db.ok ? String(db.tables || 0) : '—'
-  el('sysdbbytes').textContent = db.ok ? bytes(db.bytes) : '—'
+  // 连不上也给零值占位，不摆横线，版面和连上时一样齐
+  el('sysdbver').textContent = db.ok ? db.version || '0.0.0' : '0.0.0'
+  el('sysdbaddr').textContent = `${db.host || '0.0.0.0'}:${db.port || 0}`
+  el('sysdbname').textContent = db.name || 'dsh'
+  el('sysdbtables').textContent = String(db.tables || 0)
+  el('sysdbbytes').textContent = bytes(db.bytes)
 
   rendersvc(doc.services)
   // 上游状态在服务行里已经算过一次，这里直接复用，别重复判断
@@ -197,6 +200,9 @@ async function pull() {
     if (doc.error) throw new Error(doc.error)
     render(doc)
   } catch (err) {
+    // 读失败就把骨架撤了，留着转只会让人以为还在加载
+    el('syssvc')?.replaceChildren()
+    el('apilist')?.replaceChildren()
     el('sysnote').textContent = `读取失败：${err.message}`
   } finally {
     state.busy = false

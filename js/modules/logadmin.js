@@ -58,9 +58,10 @@ async function loadstat(sec) {
     rownode.textContent = doc.rows >= 10000 ? `${(doc.rows / 10000).toFixed(1)} 万` : String(doc.rows)
     bytenode.textContent = bytesize(doc.bytes)
   } catch (err) {
-    daynode.textContent = '—'
-    rownode.textContent = '—'
-    bytenode.textContent = '—'
+    // 读失败也给零值，位上照样有数，跟正常读到时版式一样
+    daynode.textContent = '0'
+    rownode.textContent = '0'
+    bytenode.textContent = '0 B'
     say(`${sec.name}概况读取失败：${err.message}`, 'bad')
   }
 }

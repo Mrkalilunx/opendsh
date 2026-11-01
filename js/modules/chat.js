@@ -155,7 +155,7 @@ function makethink(text) {
   return wrap
 }
 
-function bubble(role, text, files, index, msg) {
+function bubble(role, text, files, index, msg, still = false) {
   const log = el('chatlog')
   const imgs = Array.isArray(msg && msg.thumbs) ? msg.thumbs : []
 
@@ -174,6 +174,8 @@ function bubble(role, text, files, index, msg) {
 
   const node = document.createElement('div')
   node.className = 'chat-msg ' + (role === 'user' ? 'me' : 'ai')
+  // 重建历史消息时不要逐条播入场，只有新来的那条才滑
+  if (still) node.dataset.still = '1'
   node.textContent = text
   node.dataset.role = role
   node.dataset.text = text
@@ -264,11 +266,11 @@ function paint() {
     if (m.role === 'assistant' && typeof m.think === 'string' && m.think) el('chatlog').appendChild(makethink(m.think))
     const hasimg = Array.isArray(m.thumbs) && m.thumbs.length > 0
     if ((m.role === 'user' || m.role === 'assistant') && ((typeof m.content === 'string' && m.content) || hasimg)) {
-      bubble(m.role, m.content || '', m.files, i, m)
+      bubble(m.role, m.content || '', m.files, i, m, true)
     }
   }
   if (!chat.msgs.length) {
-    const node = bubble('assistant', greet)
+    const node = bubble('assistant', greet, undefined, undefined, undefined, true)
     node.classList.add('chat-greet')
   }
   scroll()
@@ -978,7 +980,8 @@ async function pickpersona(id) {
 
 // 模型列表读本地 /v1/models，选完写同一个 localStorage 键，设置页也跟着换
 function syncmodel() {
-  const id = currentmodel()
+  // 一个模型都没选时统一写「未选择」，别留空白格子
+  const id = currentmodel() || '未选择'
   const btn = el('chatmodelsel')
   if (btn) btn.textContent = id
   const note = el('chatmodel')

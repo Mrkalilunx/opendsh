@@ -37,10 +37,20 @@ function reveal(nav, cur) {
   }
 }
 
+// 每次切页重挂一次入场动画：先摘类，读一次布局让浏览器认账，再挂回去
+function enter(node) {
+  node.classList.remove('view-in')
+  void node.offsetWidth
+  node.classList.add('view-in')
+}
+
 function show(name) {
   for (const view of views) {
     const node = document.getElementById(`view-${view}`)
-    if (node) node.hidden = view !== name
+    if (!node) continue
+    const on = view === name
+    node.hidden = !on
+    if (on) enter(node)
   }
   for (const tab of document.querySelectorAll('.tab')) {
     tab.setAttribute('aria-current', tab.dataset.view === name ? 'page' : 'false')

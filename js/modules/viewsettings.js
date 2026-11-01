@@ -48,9 +48,6 @@ function syncswitch() {
   const bbox = el('setbridge')
   const blabel = el('setbridgetext')
   if (bbox && blabel) blabel.textContent = bbox.checked ? '启用' : '关闭'
-  const mbox = el('setmute')
-  const mlabel = el('setmutetext')
-  if (mbox && mlabel) mlabel.textContent = mbox.checked ? '启用' : '关闭'
   const rbox = el('setresp')
   const rlabel = el('setresptext')
   if (rbox && rlabel) rlabel.textContent = rbox.checked ? '启用' : '关闭'
@@ -91,8 +88,6 @@ function fill(settings) {
   if (tbox) tbox.checked = Boolean(settings.tools)
   const bbox = el('setbridge')
   if (bbox) bbox.checked = Boolean(settings.toolbridge)
-  const mbox = el('setmute')
-  if (mbox) mbox.checked = Boolean(settings.toolmute)
   const rbox = el('setresp')
   if (rbox) rbox.checked = Boolean(settings.responses)
   const wbox = el('setraw')
@@ -127,7 +122,6 @@ function collect() {
     proxypool: el('setproxy').checked,
     tools: el('settools').checked,
     toolbridge: el('setbridge').checked,
-    toolmute: el('setmute').checked,
     rawentry: el('setraw').checked,
     keyauth: el('keyauth').checked,
     responses: el('setresp').checked,
@@ -175,9 +169,8 @@ function paintpaths(paths) {
   const db = el('dbnow')
   if (db) {
     const it = paths.db || {}
-    db.textContent = it.host
-      ? `当前连的是 ${it.user}@${it.host}:${it.port}/${it.database}`
-      : '还没读到库的连接信息'
+    // 没读到也按 host:port/库 的形状摆出零值，跟连上时一样齐
+    db.textContent = `当前连的是 ${it.user || 'dsh'}@${it.host || '0.0.0.0'}:${it.port || 0}/${it.database || 'dsh'}`
   }
 }
 
@@ -272,7 +265,6 @@ export function mountsettings() {
   el('setproxy')?.addEventListener('change', syncswitch)
   el('settools')?.addEventListener('change', syncswitch)
   el('setbridge')?.addEventListener('change', syncswitch)
-  el('setmute')?.addEventListener('change', syncswitch)
   el('setraw')?.addEventListener('change', syncswitch)
   el('keyauth')?.addEventListener('change', syncskey)
   // Responses 开关搬到 Codex 那栏，不在表单里，得单独接一条自动保存

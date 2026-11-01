@@ -10,6 +10,17 @@
   try {
     var tref = localStorage.getItem('dsh:theme')
     if (tref) document.documentElement.dataset.theme = tref
+    // 深色模式也在首帧定好，否则会先画一帧亮色再翻黑
+    var mref = localStorage.getItem('dsh:mode')
+    if (mref === 'dark' || mref === 'light') document.documentElement.dataset.mode = mref
+    else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      document.documentElement.dataset.mode = 'dark'
+    }
+    // 首帧样式表还没到，状态栏先按模式给个底色，等 theme.js 挂上再按变量重刷
+    if (document.documentElement.dataset.mode === 'dark') {
+      var mt = document.querySelector('meta[name="theme-color"]')
+      if (mt) mt.content = '#12141f'
+    }
   } catch (err) {}
 </script>
 <script>
@@ -41,6 +52,17 @@
       </svg>
       <span>dsh</span>
     </a>
+    <button class="modebtn" type="button" id="modebtn" aria-label="切换深色模式" aria-pressed="false" title="切换深色模式">
+      <svg class="modeicon" viewBox="0 0 24 24" aria-hidden="true">
+        <g class="moon">
+          <path d="M20.5 14.2A8.6 8.6 0 0 1 9.8 3.5a8.6 8.6 0 1 0 10.7 10.7z" fill="currentColor"/>
+        </g>
+        <g class="sun" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <circle cx="12" cy="12" r="4.6" fill="none"/>
+          <path d="M12 2.2v2.1M12 19.7v2.1M2.2 12h2.1M19.7 12h2.1M5.1 5.1l1.5 1.5M17.4 17.4l1.5 1.5M18.9 5.1l-1.5 1.5M6.6 17.4l-1.5 1.5"/>
+        </g>
+      </svg>
+    </button>
     <nav class="tabs" aria-label="页面导航">
       <span class="tabglider" aria-hidden="true"></span>
       <a class="tab" href="#/home" data-view="home">主页</a>
@@ -70,7 +92,7 @@
             <span class="picker-mark" aria-hidden="true"></span>
             <span class="picker-label">
               <span class="picker-key">当前模型</span>
-              <span class="picker-name" id="pickname">加载中…</span>
+              <span class="picker-name" id="pickname">未选择</span>
             </span>
             <span class="picker-caret" aria-hidden="true"></span>
           </button>
@@ -79,19 +101,19 @@
               <span>选择模型</span>
               <span class="picker-count" id="pickcount">0</span>
             </div>
-            <div class="picker-list" id="picklist"></div>
+            <div class="picker-list" id="picklist"><button class="picker-row ghostrow" type="button" disabled><span class="ghost ghostname" style="width: 62%"></span></button><button class="picker-row ghostrow" type="button" disabled><span class="ghost ghostname" style="width: 62%"></span></button><button class="picker-row ghostrow" type="button" disabled><span class="ghost ghostname" style="width: 62%"></span></button></div>
           </div>
         </div>
 
         <div class="facts">
           <div class="fact">
             <span class="fact-key">出口 IP</span>
-            <span class="fact-val" id="ipval">查询中…</span>
+            <span class="fact-val" id="ipval">0.0.0.0</span>
             <button class="fact-btn" type="button" id="ipbtn">刷新</button>
           </div>
           <div class="fact">
             <span class="fact-key">session</span>
-            <span class="fact-val" id="sessval">加载中…</span>
+            <span class="fact-val" id="sessval">ses_000000000000000000000000</span>
             <button class="fact-btn" type="button" id="sessbtn">刷新</button>
           </div>
         </div>
@@ -104,53 +126,57 @@
 
       <div class="syscard" id="syscard">
         <div class="syshead">
-          <span class="sysport">端口 <b id="sysport">—</b></span>
-          <span class="sysaddr" id="sysaddr">—</span>
+          <span class="sysport">端口 <b id="sysport">0</b></span>
+          <span class="sysaddr" id="sysaddr">http://127.0.0.1:0</span>
         </div>
 
         <div class="sysrow">
           <span class="sysrow-name">CPU</span>
-          <span class="syssegs" id="syscores" aria-hidden="true"></span>
-          <span class="sysrow-val" id="syscpu">—</span>
+          <span class="syssegs" id="syscores" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+          <span class="sysrow-val" id="syscpu">0%</span>
         </div>
 
-        <p class="sysnote syssub" id="syscpunote">—</p>
+        <p class="sysnote syssub" id="syscpunote">0 核</p>
 
         <div class="sysrow">
           <span class="sysrow-name">GPU</span>
           <span class="sysbar" id="sysgpubar"><i></i></span>
-          <span class="sysrow-val" id="sysgpu">—</span>
+          <span class="sysrow-val" id="sysgpu">0%</span>
         </div>
 
-        <p class="sysnote syssub" id="sysgpunote">—</p>
+        <p class="sysnote syssub" id="sysgpunote">0°C</p>
 
         <div class="sysrow">
           <span class="sysrow-name">内存</span>
           <span class="sysbar" id="sysmembar"><i></i></span>
-          <span class="sysrow-val" id="sysmem">—</span>
+          <span class="sysrow-val" id="sysmem">0.0G / 0.0G</span>
         </div>
 
         <div class="syssec">
           <span class="syssec-title">数据库</span>
           <div class="sysdb" id="sysdb" data-ok="false">
-            <span class="sysdb-cell wide"><i>版本</i><b id="sysdbver">—</b></span>
-            <span class="sysdb-cell"><i>地址</i><b id="sysdbaddr">—</b></span>
-            <span class="sysdb-cell"><i>库名</i><b id="sysdbname">—</b></span>
-            <span class="sysdb-cell"><i>表数</i><b id="sysdbtables">—</b></span>
-            <span class="sysdb-cell"><i>占用</i><b id="sysdbbytes">—</b></span>
+            <span class="sysdb-cell wide"><i>版本</i><b id="sysdbver">0.0.0</b></span>
+            <span class="sysdb-cell"><i>地址</i><b id="sysdbaddr">0.0.0.0:0</b></span>
+            <span class="sysdb-cell"><i>库名</i><b id="sysdbname">dsh</b></span>
+            <span class="sysdb-cell"><i>表数</i><b id="sysdbtables">0</b></span>
+            <span class="sysdb-cell"><i>占用</i><b id="sysdbbytes">0 B</b></span>
           </div>
         </div>
 
-        <div class="syssvc" id="syssvc"></div>
-        <p class="sysnote" id="sysnote">读取中…</p>
+        <div class="syssvc" id="syssvc"><span class="ghost ghostsvc" style="width: 3.25rem"></span><span class="ghost ghostsvc" style="width: 2.75rem"></span><span class="ghost ghostsvc" style="width: 3rem"></span></div>
+        <p class="sysnote" id="sysnote">更新于 00:00:00 · 开机 0 小时 0 分</p>
       </div>
 
       <div class="apicard">
         <header class="apihead">
           <span class="apititle">支持的接口</span>
-          <span class="apicount" id="apicount">—</span>
+          <span class="apicount" id="apicount">0 / 0 可用</span>
         </header>
-        <ul class="apilist" id="apilist"></ul>
+        <ul class="apilist" id="apilist">
+              <li class="apirow ghostrow"><span class="ghost ghostdot"></span><span class="ghost ghostbar" style="width: 58%"></span></li>
+              <li class="apirow ghostrow"><span class="ghost ghostdot"></span><span class="ghost ghostbar" style="width: 44%"></span></li>
+              <li class="apirow ghostrow"><span class="ghost ghostdot"></span><span class="ghost ghostbar" style="width: 66%"></span></li>
+            </ul>
       </div>
     </section>
 
@@ -160,7 +186,7 @@
           <header class="panel-head">
             <h2 class="panel-title">聊天</h2>
             <span class="panel-side">
-              <span class="panel-note" id="chatmodel">—</span>
+              <span class="panel-note" id="chatmodel">未选择</span>
               <button class="keyact" type="button" id="chatnew" title="新建对话" aria-label="新建对话">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
@@ -179,7 +205,7 @@
               <span>历史对话</span>
               <span class="panel-note" id="chatcount">0</span>
             </header>
-            <ul class="chat-menu-list" id="chatlist"></ul>
+            <ul class="chat-menu-list" id="chatlist"><li class="chat-menu-row ghostrow"><span class="ghost ghostname" style="width: 70%"></span></li><li class="chat-menu-row ghostrow"><span class="ghost ghostname" style="width: 70%"></span></li><li class="chat-menu-row ghostrow"><span class="ghost ghostname" style="width: 70%"></span></li></ul>
           </div>
 
           <div class="chat-log" id="chatlog" role="log" aria-live="polite"></div>
@@ -189,7 +215,7 @@
               <span>人设卡片</span>
               <span class="panel-note" id="chatpersonacount">0</span>
             </header>
-            <ul class="chat-menu-list" id="chatpersonalist"></ul>
+            <ul class="chat-menu-list" id="chatpersonalist"><li class="chat-menu-row ghostrow"><span class="ghost ghostname" style="width: 68%"></span></li><li class="chat-menu-row ghostrow"><span class="ghost ghostname" style="width: 68%"></span></li></ul>
           </div>
 
           <div class="chat-menu chat-pop" id="chatmodelmenu" hidden>
@@ -197,7 +223,7 @@
               <span>切换模型</span>
               <span class="panel-note" id="chatmodelcount">0</span>
             </header>
-            <ul class="chat-menu-list" id="chatmodellist"></ul>
+            <ul class="chat-menu-list" id="chatmodellist"><li class="chat-menu-row ghostrow"><span class="ghost ghostname" style="width: 70%"></span></li><li class="chat-menu-row ghostrow"><span class="ghost ghostname" style="width: 70%"></span></li><li class="chat-menu-row ghostrow"><span class="ghost ghostname" style="width: 70%"></span></li></ul>
           </div>
 
           <form class="chat-form" id="chatform">
@@ -212,7 +238,7 @@
                 </button>
                 <input class="chat-file" type="file" id="chatfile" multiple hidden>
                 <button class="chatpick" type="button" id="chatpersona" aria-haspopup="dialog" aria-expanded="false" title="选择人设">未选人设</button>
-                <button class="chatpick chatmod" type="button" id="chatmodelsel" aria-haspopup="dialog" aria-expanded="false" title="切换模型">—</button>
+                <button class="chatpick chatmod" type="button" id="chatmodelsel" aria-haspopup="dialog" aria-expanded="false" title="切换模型">未选择</button>
                 <button class="chatsend" type="submit" id="chatsend" aria-label="发送" disabled>
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M12 19V5M6 11l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
@@ -314,21 +340,11 @@
               <span class="field-hint">含模板那 12 个，超出就走工具桥</span>
             </div>
 
-            <div class="field field-row">
-              <span class="field-key">抑制模板工具</span>
-              <label class="switch">
-                <input id="setmute" type="checkbox">
-                <span class="switch-track"><span class="switch-knob"></span></span>
-                <span class="switch-text" id="setmutetext">关闭</span>
-              </label>
-            </div>
-            <p class="field-hint">开着时模型调那 12 个会被直接丢掉，改用客户端自己的工具</p>
-
             <div class="entrybox">
               <div class="entryrow">
                 <span class="entrypath">/v1</span>
                 <span class="entrywho">通用</span>
-                <span class="entrynote">按上面的开关抑制模板工具</span>
+                <span class="entrynote">始终抑制模板工具，只让客户端自己的工具可用</span>
               </div>
               <div class="entryrow">
                 <span class="entrypath">/raw/v1</span>
@@ -416,15 +432,15 @@
             <div class="logstat">
               <div class="logstat-cell">
                 <span class="logstat-key">覆盖天数</span>
-                <span class="logstat-num" id="logstatdays">—</span>
+                <span class="logstat-num" id="logstatdays">0</span>
               </div>
               <div class="logstat-cell">
                 <span class="logstat-key">总条数</span>
-                <span class="logstat-num" id="logstatrows">—</span>
+                <span class="logstat-num" id="logstatrows">0</span>
               </div>
               <div class="logstat-cell">
                 <span class="logstat-key">占用空间</span>
-                <span class="logstat-num" id="logstatbytes">—</span>
+                <span class="logstat-num" id="logstatbytes">0 B</span>
               </div>
             </div>
 
@@ -436,7 +452,7 @@
 
             <div class="field">
               <span class="field-key">按天清理</span>
-              <ul class="logdays" id="logdaylist"></ul>
+              <ul class="logdays" id="logdaylist"><li class="keyrow ghostrow"><span class="ghost ghostname" style="width: 58%"></span></li><li class="keyrow ghostrow"><span class="ghost ghostname" style="width: 64%"></span></li><li class="keyrow ghostrow"><span class="ghost ghostname" style="width: 70%"></span></li></ul>
               <span class="field-hint">点减号删一整天，删掉的日志不会恢复</span>
             </div>
 
@@ -448,21 +464,21 @@
             <div class="logstat">
               <div class="logstat-cell">
                 <span class="logstat-key">覆盖天数</span>
-                <span class="logstat-num" id="reqstatdays">—</span>
+                <span class="logstat-num" id="reqstatdays">0</span>
               </div>
               <div class="logstat-cell">
                 <span class="logstat-key">总条数</span>
-                <span class="logstat-num" id="reqstatrows">—</span>
+                <span class="logstat-num" id="reqstatrows">0</span>
               </div>
               <div class="logstat-cell">
                 <span class="logstat-key">占用空间</span>
-                <span class="logstat-num" id="reqstatbytes">—</span>
+                <span class="logstat-num" id="reqstatbytes">0 B</span>
               </div>
             </div>
 
             <div class="field">
               <span class="field-key">按天清理</span>
-              <ul class="logdays" id="reqdaylist"></ul>
+              <ul class="logdays" id="reqdaylist"><li class="keyrow ghostrow"><span class="ghost ghostname" style="width: 58%"></span></li><li class="keyrow ghostrow"><span class="ghost ghostname" style="width: 64%"></span></li><li class="keyrow ghostrow"><span class="ghost ghostname" style="width: 70%"></span></li></ul>
               <span class="field-hint">一次转发一条，含收发的原文，删掉不会恢复</span>
             </div>
           </div>
@@ -480,7 +496,7 @@
             <div class="field">
               <span class="field-key">状态目录</span>
               <input class="field-input" id="setstatedir" type="text" spellcheck="false" autocomplete="off" placeholder="留空用默认">
-              <span class="field-hint" id="statedirnow">读取中…</span>
+              <span class="field-hint" id="statedirnow"></span>
             </div>
 
             <p class="field-hint">Key、人设、模型映射跟着走，老目录里的数据仍能读到，改写只进新目录</p>
@@ -488,7 +504,7 @@
             <div class="field">
               <span class="field-key">MariaDB 数据目录</span>
               <input class="field-input" id="setdatadir" type="text" spellcheck="false" autocomplete="off" placeholder="留空用默认">
-              <span class="field-hint" id="datadirnow">读取中…</span>
+              <span class="field-hint" id="datadirnow"></span>
             </div>
 
             <p class="field-hint">改完要把数据库停了重开才用新目录</p>
@@ -523,7 +539,7 @@
             </div>
 
             <p class="field-hint">改完立即按新参数重连，连不上就退回只写内存</p>
-            <p class="field-hint" id="dbnow">读取中…</p>
+            <p class="field-hint" id="dbnow"></p>
           </div>
         </div>
 
@@ -550,7 +566,7 @@
             <span class="logsec-title">模型映射</span>
           </div>
           <p class="field-hint">客户端报左边这个名字时，上游换成右边那个；没配映射就按原样发</p>
-          <ul class="keylist" id="maprows"></ul>
+          <ul class="keylist" id="maprows"><li class="keyrow ghostrow"><span class="ghost ghostname" style="width: 66%"></span></li><li class="keyrow ghostrow"><span class="ghost ghostname" style="width: 72%"></span></li><li class="keyrow ghostrow"><span class="ghost ghostname" style="width: 78%"></span></li></ul>
           <p class="panel-state" id="mapstate" role="status"></p>
         </div>
       </div>
@@ -583,7 +599,7 @@
         </header>
 
         <div class="form form-tight">
-          <ul class="keylist keylist-tall" id="personarows"></ul>
+          <ul class="keylist keylist-tall" id="personarows"><li class="keyrow ghostrow"><span class="ghost ghostname" style="width: 70%"></span></li><li class="keyrow ghostrow"><span class="ghost ghostname" style="width: 76%"></span></li></ul>
           <p class="panel-state" id="personastate" role="status"></p>
         </div>
       </div>
@@ -592,7 +608,7 @@
         <header class="panel-head">
           <h2 class="panel-title">session</h2>
           <span class="panel-side">
-            <span class="panel-note" id="sessnote">加载中…</span>
+            <span class="panel-note" id="sessnote">池 0 个 · 当前第 0 个</span>
             <button class="keyact" type="button" id="sessreset" title="重新生成整池" aria-label="重新生成整池">
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -603,7 +619,7 @@
         </header>
 
         <div class="form form-tight">
-          <ul class="keylist" id="sessrows"></ul>
+          <ul class="keylist" id="sessrows"><li class="keyrow ghostrow"><span class="ghost ghostname" style="width: 62%"></span></li><li class="keyrow ghostrow"><span class="ghost ghostname" style="width: 68%"></span></li><li class="keyrow ghostrow"><span class="ghost ghostname" style="width: 74%"></span></li></ul>
           <p class="panel-state" id="sessstate" role="status"></p>
         </div>
       </div>
@@ -615,7 +631,7 @@
         </header>
 
         <div class="form form-tight">
-          <ul class="keylist" id="keylist"></ul>
+          <ul class="keylist" id="keylist"><li class="keyrow ghostrow"><span class="ghost ghostname" style="width: 56%"></span></li><li class="keyrow ghostrow"><span class="ghost ghostname" style="width: 62%"></span></li><li class="keyrow ghostrow"><span class="ghost ghostname" style="width: 68%"></span></li></ul>
           <p class="panel-state" id="keystate" role="status"></p>
         </div>
       </div>
@@ -641,7 +657,7 @@
         </div>
 
         <p class="field-hint">只改页面显示，不动真实服务，用来看看挂了是什么样</p>
-        <ul class="fakelist" id="fakerows"></ul>
+        <ul class="fakelist" id="fakerows"><li class="fakerow ghostrow"><span class="ghost ghostname" style="width: 60%"></span></li><li class="fakerow ghostrow"><span class="ghost ghostname" style="width: 66%"></span></li><li class="fakerow ghostrow"><span class="ghost ghostname" style="width: 72%"></span></li></ul>
         <p class="panel-state" id="fakestate" role="status"></p>
 
         <div class="logsec-head">
@@ -724,12 +740,12 @@
 
         <div class="logbox" id="logbox">
           <div class="logpane" id="logpane-run">
-            <ol class="loglist" id="loglist" aria-live="polite"></ol>
+            <ol class="loglist" id="loglist" aria-live="polite"><li class="logrow ghostrow"><span class="ghost ghosttime"></span><span class="ghost ghostline" style="width:78%"></span></li><li class="logrow ghostrow"><span class="ghost ghosttime"></span><span class="ghost ghostline" style="width:56%"></span></li><li class="logrow ghostrow"><span class="ghost ghosttime"></span><span class="ghost ghostline" style="width:68%"></span></li></ol>
             <p class="logempty" id="logempty" hidden>暂无日志，等待新记录</p>
             <button class="logjump" type="button" id="logjump" hidden>回到最新</button>
           </div>
           <div class="logpane" id="logpane-req" hidden>
-            <ol class="reqlist" id="reqlist" aria-live="polite"></ol>
+            <ol class="reqlist" id="reqlist" aria-live="polite"><li class="reqrow ghostrow"><span class="ghost ghostline" style="width:72%"></span><span class="ghost ghosttime"></span></li><li class="reqrow ghostrow"><span class="ghost ghostline" style="width:58%"></span><span class="ghost ghosttime"></span></li><li class="reqrow ghostrow"><span class="ghost ghostline" style="width:64%"></span><span class="ghost ghosttime"></span></li></ol>
             <p class="logempty" id="reqempty" hidden>这一天没有请求记录</p>
           </div>
           <div class="logpane" id="logpane-proc" hidden>
@@ -740,7 +756,7 @@
               </div>
               <button class="chip" type="button" id="procorder">降序</button>
             </div>
-            <ol class="proclist" id="proclist" aria-live="polite"></ol>
+            <ol class="proclist" id="proclist" aria-live="polite"><li class="proccard ghostrow"><span class="ghost ghostname" style="width:60%"></span><span class="ghost ghostbar" style="width:74%"></span></li><li class="proccard ghostrow"><span class="ghost ghostname" style="width:48%"></span><span class="ghost ghostbar" style="width:52%"></span></li><li class="proccard ghostrow"><span class="ghost ghostname" style="width:66%"></span><span class="ghost ghostbar" style="width:40%"></span></li></ol>
             <p class="logempty" id="procempty" hidden>没有读到 Termux 的进程</p>
           </div>
         </div>
@@ -785,7 +801,7 @@
         <header class="panel-head">
           <h2 class="panel-title">用量</h2>
           <span class="panel-side">
-            <span class="panel-note" id="usagenote">读取中…</span>
+            <span class="panel-note" id="usagenote">更新于 00:00</span>
           </span>
         </header>
 
@@ -800,54 +816,54 @@
 
         <div class="usagestats" id="usagestats">
           <div class="usagestat">
-            <span class="usagestat-val" id="usagetotal">—</span>
+            <span class="usagestat-val" id="usagetotal">0</span>
             <span class="usagestat-key" id="usagerangekey">近 7 天新增</span>
-            <span class="usagestat-note" id="usagetotalnote">—</span>
+            <span class="usagestat-note" id="usagetotalnote">含缓存 0</span>
           </div>
           <div class="usagestat">
-            <span class="usagestat-val" id="usagetoday">—</span>
+            <span class="usagestat-val" id="usagetoday">0</span>
             <span class="usagestat-key">今日新增</span>
-            <span class="usagestat-note" id="usagetodaynote">—</span>
+            <span class="usagestat-note" id="usagetodaynote">含缓存 0</span>
           </div>
           <div class="usagestat">
-            <span class="usagestat-val" id="usagecalls">—</span>
+            <span class="usagestat-val" id="usagecalls">0</span>
             <span class="usagestat-key" id="usagecallskey">近 7 天请求</span>
-            <span class="usagestat-note" id="usagecallsnote">—</span>
+            <span class="usagestat-note" id="usagecallsnote">0 天 · 成功 0</span>
           </div>
         </div>
 
         <dl class="usagemeta" id="usagesplit">
           <div class="usagemeta-row">
             <dt class="usagemeta-key">输入</dt>
-            <dd class="usagemeta-val" id="usagein">—</dd>
+            <dd class="usagemeta-val" id="usagein">0</dd>
           </div>
           <div class="usagemeta-row">
             <dt class="usagemeta-key">新增输入</dt>
-            <dd class="usagemeta-val" id="usagenew">—</dd>
+            <dd class="usagemeta-val" id="usagenew">0</dd>
           </div>
           <div class="usagemeta-row">
             <dt class="usagemeta-key">输出</dt>
-            <dd class="usagemeta-val" id="usageout">—</dd>
+            <dd class="usagemeta-val" id="usageout">0</dd>
           </div>
           <div class="usagemeta-row">
             <dt class="usagemeta-key">缓存命中</dt>
-            <dd class="usagemeta-val" id="usagecache">—</dd>
+            <dd class="usagemeta-val" id="usagecache">0%</dd>
           </div>
           <div class="usagemeta-row">
             <dt class="usagemeta-key">推理</dt>
-            <dd class="usagemeta-val" id="usagereason">—</dd>
+            <dd class="usagemeta-val" id="usagereason">0</dd>
           </div>
           <div class="usagemeta-row">
             <dt class="usagemeta-key">成功率</dt>
-            <dd class="usagemeta-val" id="usageok">—</dd>
+            <dd class="usagemeta-val" id="usageok">0%</dd>
           </div>
           <div class="usagemeta-row">
             <dt class="usagemeta-key">平均耗时</dt>
-            <dd class="usagemeta-val" id="usagems">—</dd>
+            <dd class="usagemeta-val" id="usagems">0ms</dd>
           </div>
           <div class="usagemeta-row">
             <dt class="usagemeta-key">预估花费</dt>
-            <dd class="usagemeta-val" id="usagecost">—</dd>
+            <dd class="usagemeta-val" id="usagecost">$0.00</dd>
           </div>
         </dl>
 
@@ -859,24 +875,24 @@
           <h2 class="panel-title">每天用量</h2>
           <span class="panel-note">柱高按当天新增 token</span>
         </header>
-        <div class="usagechart" id="usagechart" role="img" aria-label="每日 token 用量"></div>
+        <div class="usagechart" id="usagechart" role="img" aria-label="每日 token 用量"><div class="usagecol ghostcol"><span class="ghost ghostbar" style="height: 38%"></span></div><div class="usagecol ghostcol"><span class="ghost ghostbar" style="height: 62%"></span></div><div class="usagecol ghostcol"><span class="ghost ghostbar" style="height: 47%"></span></div><div class="usagecol ghostcol"><span class="ghost ghostbar" style="height: 78%"></span></div><div class="usagecol ghostcol"><span class="ghost ghostbar" style="height: 55%"></span></div><div class="usagecol ghostcol"><span class="ghost ghostbar" style="height: 86%"></span></div><div class="usagecol ghostcol"><span class="ghost ghostbar" style="height: 42%"></span></div></div>
         <p class="panel-state" id="usagechartstate" role="status"></p>
       </div>
 
       <div class="panel panel-wide">
         <header class="panel-head">
           <h2 class="panel-title">分模型</h2>
-          <span class="panel-note" id="usagemodelsnote">—</span>
+          <span class="panel-note" id="usagemodelsnote">新增 0 · 含缓存 0</span>
         </header>
-        <ul class="usagelist" id="usagemodels"></ul>
+        <ul class="usagelist" id="usagemodels"><li class="usageline ghostline"><span class="ghost ghostname" style="width: 72%"></span><span class="ghost ghostbar" style="width: 64%"></span><span class="ghost ghostnum"></span></li><li class="usageline ghostline"><span class="ghost ghostname" style="width: 54%"></span><span class="ghost ghostbar" style="width: 46%"></span><span class="ghost ghostnum"></span></li><li class="usageline ghostline"><span class="ghost ghostname" style="width: 63%"></span><span class="ghost ghostbar" style="width: 38%"></span><span class="ghost ghostnum"></span></li></ul>
       </div>
 
       <div class="panel panel-wide">
         <header class="panel-head">
           <h2 class="panel-title">分来源</h2>
-          <span class="panel-note" id="usagesourcesnote">—</span>
+          <span class="panel-note" id="usagesourcesnote">新增 0 · 含缓存 0</span>
         </header>
-        <ul class="usagelist" id="usagesources"></ul>
+        <ul class="usagelist" id="usagesources"><li class="usageline ghostline"><span class="ghost ghostname" style="width: 72%"></span><span class="ghost ghostbar" style="width: 64%"></span><span class="ghost ghostnum"></span></li><li class="usageline ghostline"><span class="ghost ghostname" style="width: 54%"></span><span class="ghost ghostbar" style="width: 46%"></span><span class="ghost ghostnum"></span></li><li class="usageline ghostline"><span class="ghost ghostname" style="width: 63%"></span><span class="ghost ghostbar" style="width: 38%"></span><span class="ghost ghostnum"></span></li></ul>
       </div>
     </section>
   </main>

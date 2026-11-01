@@ -7,8 +7,11 @@ async function query() {
   const btn = el('ipbtn')
   if (!value || !btn) return
 
-  value.textContent = '查询中…'
-  value.title = ''
+  // 查的过程中保持地址的形状，只靠扫光表示还在跑，不换成一段文字
+  value.textContent = '0.0.0.0'
+  value.title = '查询中'
+  // 查询要等一秒多，挂个扫光让等待有反馈
+  value.dataset.busy = '1'
   btn.disabled = true
 
   try {
@@ -18,9 +21,10 @@ async function query() {
     value.textContent = doc.ip
     value.title = doc.via === 'direct' ? '直连出口' : `经代理 ${doc.via}`
   } catch (err) {
-    value.textContent = '查询失败'
-    value.title = err.message
+    value.textContent = '0.0.0.0'
+    value.title = `查询失败：${err.message}`
   } finally {
+    delete value.dataset.busy
     btn.disabled = false
   }
 }

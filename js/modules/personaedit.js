@@ -223,6 +223,8 @@ async function load() {
     paint(doc)
     says('')
   } catch (err) {
+    // 读失败就把占位行撤了，别让骨架一直转着像还在等
+    el('personarows')?.replaceChildren()
     says(`读取失败：${err.message}`, 'bad')
   }
 }

@@ -1,6 +1,8 @@
 // 请求记录页：按天列代理转发的请求，点开看请求头、请求体和响应原文
 
 import { daykey, today } from './daypick.js'
+import { opensheet, shutsheet } from '../lib/sheet.js'
+import { setflash } from '../lib/flash.js'
 
 const el = (id) => document.getElementById(id)
 
@@ -52,7 +54,8 @@ function setstate(text, toneName) {
 function count(shown, total) {
   const node = el('logcount')
   if (!node) return
-  node.textContent = shown === total ? String(total) : `${shown}/${total}`
+  // 条数变了闪一下，新请求进来时不用盯着数字也能察觉
+  setflash(node, shown === total ? String(total) : `${shown}/${total}`)
 }
 
 // 来源的显示名，跟后端 sources 一一对应
@@ -74,7 +77,8 @@ function makerow(item) {
   const stat = document.createElement('span')
   stat.className = 'reqstat'
   stat.dataset.tone = tone(item.status)
-  stat.textContent = item.status || '—'
+  // 状态码固定三位，没有值时补 000，列宽不会因为缺值变窄
+  stat.textContent = String(item.status || 0).padStart(3, '0')
 
   const time = document.createElement('span')
   time.className = 'reqtime'
@@ -102,7 +106,15 @@ function paint() {
   if (!list) return
   list.innerHTML = ''
   const frag = document.createDocumentFragment()
-  for (const item of state.items) frag.appendChild(makerow(item))
+  state.items.forEach((item, index) => {
+    const row = makerow(item)
+    // 只有开头几行错峰入场，后面几百行一起播会整片闪
+    if (index < 8) row.style.setProperty('--delay', `${index * 22}ms`)
+    else row.dataset.static = '1'
+    // 正在看详情的那条保持高亮，切日期重绘后也接得上
+    if (state.openid && String(item.id) === state.openid) row.setAttribute('aria-current', 'true')
+    frag.appendChild(row)
+  })
   list.appendChild(frag)
   const empty = el('reqempty')
   if (empty) {
@@ -128,6 +140,8 @@ async function load() {
     paint()
     if (doc.fallback) setstate('日志库未连接，请求记录读不到', 'warn')
   } catch (err) {
+    // 读失败就把占位行撤了，别让骨架一直转着像还在等
+    el('reqlist')?.replaceChildren()
     setstate(`读取失败：${err.message}`, 'bad')
   }
 }
@@ -169,7 +183,15 @@ function append(item) {
   if (empty) empty.hidden = true
   if (list) {
     if (over > 0 && list.lastChild) list.removeChild(list.lastChild)
-    list.insertBefore(makerow(item), list.firstChild)
+    const row = makerow(item)
+    // 新到的那条落下来，短暂亮一下底色，一眼看到是哪条
+    row.dataset.fresh = '1'
+    // 摘标记的同时挂上 static，不然底下的 rowin 会接班重播一次淡入，看着闪一下
+    row.addEventListener('animationend', () => {
+      delete row.dataset.fresh
+      row.dataset.static = '1'
+    }, { once: true })
+    list.insertBefore(row, list.firstChild)
   }
   if (state.active) count(state.items.length, Math.max(state.total, state.items.length))
 }
@@ -280,11 +302,14 @@ function rendersheet(doc) {
   const body = el('reqbody')
   if (!body) return
   body.innerHTML = ''
-  body.append(
+  // 三段内容错开落下，数据一次填进来时不至于整块硬闪
+  const secs = [
     section('请求头', pretty(doc.reqhead)),
     section('请求体', pretty(doc.reqbody), doc.reqbody && doc.reqbody.length >= 32 * 1024 ? '已截断' : ''),
     section('响应体', pretty(doc.respbody), doc.respbody && doc.respbody.length >= 32 * 1024 ? '已截断' : ''),
-  )
+  ]
+  secs.forEach((one, index) => one.style.setProperty('--delay', `${index * 45}ms`))
+  body.append(...secs)
 }
 
 let openedat = 0
@@ -296,26 +321,39 @@ async function open(id) {
   state.openid = String(id)
   resetarm(el('reqdel'))
   el('reqtitle').textContent = `请求 #${id}`
-  el('reqmeta').textContent = '读取中…'
+  const metanode = el('reqmeta')
+  metanode.textContent = '读取中…'
+  // 读取要等一会儿，挂个扫光让等待有反馈
+  metanode.dataset.busy = '1'
   const st = el('reqstamp')
   if (st) st.textContent = ''
   el('reqbody').innerHTML = ''
-  sheet.hidden = false
+  markrow()
+  // 入场动画只在元素从 display:none 变回来时重播
+  // 换一条再点开时就靠这一步重头播，否则只有第一次展开有动效
+  delete sheet.dataset.shut
+  sheet.hidden = true
+  void sheet.offsetWidth
+  opensheet(sheet)
   try {
     const res = await fetch(`/__requests?id=${id}`, { cache: 'no-store' })
     const doc = await res.json()
     if (doc.error) throw new Error(doc.error)
     rendersheet(doc)
   } catch (err) {
-    el('reqmeta').textContent = `读取失败：${err.message}`
+    metanode.textContent = `读取失败：${err.message}`
+  } finally {
+    delete metanode.dataset.busy
   }
 }
 
 function close() {
   const sheet = el('reqsheet')
-  if (sheet) sheet.hidden = true
+  const wasopen = state.openid
   state.openid = ''
   resetarm(el('reqdel'))
+  // 高亮等面板收完再摘，退场过程中那行还是亮的，位置接得上
+  if (sheet) shutsheet(sheet, () => wasopen && markrow())
 }
 
 // 删除类按钮统一两段式：第一下改成确认文案，四秒内再点才真的执行
@@ -346,11 +384,25 @@ function resetarm(btn) {
   btn.textContent = btn.dataset.idle || '删除'
 }
 
+// 正在看的那行标出来，列表里一眼能找回位置
+function markrow() {
+  const list = el('reqlist')
+  if (!list) return
+  for (const row of list.querySelectorAll('.reqrow')) {
+    if (state.openid && row.dataset.id === state.openid) row.setAttribute('aria-current', 'true')
+    else row.removeAttribute('aria-current')
+  }
+}
+
 // 删掉一条后本地先摘掉，不整页重拉，实时流照常往下走
 function droprow(id) {
   const list = el('reqlist')
   const row = list && list.querySelector(`.reqrow[data-id="${id}"]`)
-  if (row) row.remove()
+  // 删掉的行先淡出去再摘，直接消失看着像手滑
+  if (row) {
+    row.dataset.gone = '1'
+    setTimeout(() => row.remove(), 160)
+  }
   const gone = state.items.find((it) => String(it.id) === String(id))
   state.items = state.items.filter((it) => String(it.id) !== String(id))
   state.total = Math.max(0, state.total - 1)

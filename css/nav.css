@@ -15,7 +15,7 @@
   /* 页签一律留在这一行：窄屏让 tabs 自己横向滑，绝不整体掉到第二行 */
   flex-wrap: nowrap;
   padding: 0.5625rem 0.75rem;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--line);
   border-radius: 0.3125rem;
   box-shadow: 0.5rem 0.5rem 2px rgba(var(--accent-rgb), 0.14);
@@ -28,7 +28,7 @@
   gap: 0.5rem;
   font-size: 0.8125rem;
   font-weight: 800;
-  color: var(--blue);
+  color: var(--accent-ink);
   text-decoration: none;
   padding: 2px 0.25rem;
 }
@@ -36,17 +36,64 @@
 .brand .logo {
   width: 1.375rem;
   height: 1.375rem;
-  color: var(--blue);
+  color: var(--accent-ink);
+}
+
+/* 深色模式按钮：太阳和月亮两个图标叠在同一格里，按 html[data-mode] 切换显示 */
+.modebtn {
+  flex: none;
+  /* 顶住左边把按钮和页签一起推到右边，按钮就紧贴在「主页」左边 */
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  color: var(--fg-dim);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 0.1875rem;
+  cursor: pointer;
+  transition:
+    color 0.18s,
+    border-color 0.18s,
+    transform 0.12s ease;
+}
+
+.modebtn:hover {
+  color: var(--accent-ink);
+  border-color: var(--line-strong);
+}
+
+.modebtn:active {
+  transform: translateY(1px);
+}
+
+.modeicon {
+  width: 1.0625rem;
+  height: 1.0625rem;
+}
+
+/* 浅色时显示月亮（点它进深色），深色时显示太阳（点它回浅色） */
+.modeicon .sun {
+  display: none;
+}
+
+html[data-mode="dark"] .modeicon .moon {
+  display: none;
+}
+
+html[data-mode="dark"] .modeicon .sun {
+  display: inline;
 }
 
 /* 5 个页签在窄屏放不全，纵向绝不换行，放不下就横向滑
-   margin-left:auto 让宽屏时仍靠右，跟原来的 space-between 观感一致 */
+   整排紧跟在深色按钮右边，靠上面那个 auto 外边距一起贴右 */
 .tabs {
   position: relative;
   display: flex;
   flex: 0 1 auto;
   min-width: 0;
-  margin-left: auto;
   gap: 0.25rem;
   overflow-x: auto;
   overscroll-behavior-x: contain;
@@ -92,18 +139,23 @@
   text-decoration: none;
   border: 1px solid transparent;
   border-radius: 0.1875rem;
-  transition: color 0.18s;
+  transition: color 0.18s, transform 0.12s ease;
+}
+
+/* 点页签时轻微下沉，跟指示块滑过去配合，手感更实 */
+.tab:active {
+  transform: translateY(1px);
 }
 
 /* 悬停只在没选中的页签上描边，选中的那格由指示器负责边框 */
 .tab:hover:not([aria-current="page"]) {
-  color: var(--blue);
+  color: var(--accent-ink);
   border-color: var(--line);
 }
 
 /* 选中态只留文字颜色，底块和投影交给滑动的指示器 */
 .tab[aria-current="page"] {
-  color: var(--blue);
+  color: var(--accent-ink);
 }
 
 .deck {
@@ -159,7 +211,7 @@ html[data-view="chat"] .tab[data-view="chat"],
 html[data-view="settings"] .tab[data-view="settings"],
 html[data-view="logs"] .tab[data-view="logs"],
 html[data-view="usage"] .tab[data-view="usage"] {
-  color: var(--blue);
+  color: var(--accent-ink);
 }
 
 .view-stack {

@@ -1,5 +1,8 @@
 // 进程分栏：卡片按资源占用排，点卡片弹详情，详情里两步确认后结束进程
 
+import { opensheet, shutsheet } from '../lib/sheet.js'
+import { setflash } from '../lib/flash.js'
+
 const el = (id) => document.getElementById(id)
 
 const state = {
@@ -73,7 +76,7 @@ function stamp(at) {
 // 标题右边的总数，跟日志页共用同一个计数位
 function count(total) {
   const node = el('logcount')
-  if (node) node.textContent = String(total)
+  if (node) setflash(node, String(total))
 }
 
 // 结果提示借状态那一行显示，两秒多后自己退回刷新提示
@@ -141,13 +144,16 @@ function card(it) {
   more.className = 'pcmeta'
 
   const mem = document.createElement('span')
+  mem.className = 'pcmem'
   mem.textContent = size(it.rss)
 
   const threads = document.createElement('span')
+  threads.className = 'pcthreads'
   threads.textContent = `${it.threads} 线程`
 
   more.append(mem, threads)
   li.append(head, meta, more)
+  li.__item = it
 
   li.addEventListener('click', () => open(it.pid))
   li.addEventListener('keydown', (ev) => {
@@ -158,11 +164,76 @@ function card(it) {
   return li
 }
 
+// 老卡上新数据：只改会变的几项，节点不重建，读数的闪动就不会被打断
+function refresh(node, it) {
+  node.__item = it
+  node.title = `${it.cmd} · ${it.threads} 线程 · 状态 ${states[it.state] || it.state}`
+  const cpu = node.querySelector('.pccpu')
+  if (cpu && cpu.textContent !== percent(it.cpu)) cpu.textContent = percent(it.cpu)
+  const mem = node.querySelector('.pcmem')
+  if (mem && mem.textContent !== size(it.rss)) mem.textContent = size(it.rss)
+  const threads = node.querySelector('.pcthreads')
+  const th = `${it.threads} 线程`
+  if (threads && threads.textContent !== th) threads.textContent = th
+}
+
 function paint() {
   const list = el('proclist')
   if (!list) return
   const rows = sorted()
-  list.replaceChildren(...rows.map(card))
+  const old = new Map()
+  for (const node of [...list.children]) {
+    // 占位卡没有 pid，真数据到了先整张摘掉，不能让它一直躺在那儿
+    if (!node.dataset.pid) {
+      list.removeChild(node)
+      continue
+    }
+    old.set(node.dataset.pid, node)
+  }
+  // 重排前记下位置，排完让换位的卡片滑过去，不然每次刷新都是硬跳
+  const pos = new Map()
+  for (const [pid, node] of old) pos.set(pid, node.getBoundingClientRect())
+  const keep = new Set()
+  // 按新顺序逐张对：有的就地改，没有的新建，最后把剩下的摘掉
+  for (const it of rows) {
+    const pid = String(it.pid)
+    const node = old.get(pid)
+    keep.add(pid)
+    if (node) {
+      refresh(node, it)
+      list.appendChild(node)
+      continue
+    }
+    const fresh = card(it)
+    fresh.dataset.fresh = '1'
+    // 动画播完就摘标记，否则下次重排还会重播
+    fresh.addEventListener('animationend', () => delete fresh.dataset.fresh, { once: true })
+    list.appendChild(fresh)
+  }
+  for (const [pid, node] of old) {
+    if (keep.has(pid)) continue
+    node.dataset.gone = '1'
+    setTimeout(() => node.remove(), 180)
+  }
+  // 位置变了的那几张按旧位置反向偏移，再放回去，过渡一出就是平滑滑动
+  for (const [pid, node] of old) {
+    if (!keep.has(pid)) continue
+    const was = pos.get(pid)
+    if (!was) continue
+    const now = node.getBoundingClientRect()
+    const dx = was.left - now.left
+    const dy = was.top - now.top
+    if (Math.abs(dx) < 2 && Math.abs(dy) < 2) continue
+    // 老浏览器没有 animate、或者系统要少动效，就直接换位
+    if (typeof node.animate !== 'function') continue
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) continue
+    node.animate(
+      [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }],
+      { duration: 240, easing: 'cubic-bezier(0.22, 0.61, 0.36, 1)' },
+    )
+  }
+  // 重排后把高亮补回去，正在看详情的那张卡一直亮着
+  markcard(state.openpid)
   const empty = el('procempty')
   if (empty) {
     empty.hidden = rows.length > 0
@@ -184,6 +255,8 @@ async function pull() {
     state.total = Number(doc.total) || state.items.length
     paint()
   } catch (err) {
+    // 读失败就把占位卡撤了，留着转只会让人以为还在加载
+    if (!state.items.length) el('proclist')?.replaceChildren()
     const empty = el('procempty')
     if (empty && !state.items.length) {
       empty.hidden = false
@@ -218,7 +291,8 @@ function info(pairs) {
     const dt = document.createElement('dt')
     dt.textContent = key
     const dd = document.createElement('dd')
-    dd.textContent = value === '' || value === undefined || value === null ? '—' : String(value)
+    // 空值给个中性占位，不留空单元格
+    dd.textContent = value === '' || value === undefined || value === null ? '无' : String(value)
     dl.append(dt, dd)
   }
   return dl
@@ -249,23 +323,27 @@ function render(doc) {
 
   const body = el('procbody')
   if (!body) return
-  body.replaceChildren(
+  body.replaceChildren()
+  // 两段错开落下，数据一次填进来时不至于整块硬闪
+  const secs = [
     section('命令行', '', Object.assign(document.createElement('pre'), {
       className: 'reqcode',
       textContent: doc.cmd,
     })),
     section('基本信息', '', info([
       ['PID', doc.pid],
-      ['父进程', doc.ppid ? `${doc.ppid} ${doc.ppidname || ''}`.trim() : '—'],
+      ['父进程', doc.ppid ? `${doc.ppid} ${doc.ppidname || ''}`.trim() : '0'],
       ['用户', `uid ${doc.uid}`],
       ['状态', `${states[doc.state] || doc.state} (${doc.state})`],
       ['线程数', doc.threads],
-      ['运行时长', doc.age ? span(doc.age) : '—'],
+      ['运行时长', doc.age ? span(doc.age) : '0 秒'],
       ['可执行文件', doc.exe],
       ['工作目录', doc.cwd],
       ['打开文件', `${doc.fds} 个`],
     ])),
-  )
+  ]
+  secs.forEach((one, index) => one.style.setProperty('--delay', `${index * 60}ms`))
+  body.append(...secs)
 }
 
 // 结束按钮两段式：第一下改成确认文案，四秒内再点才真的执行
@@ -300,6 +378,16 @@ function arm() {
 
 let openedat = 0
 
+// 正在看详情的那张卡标出来，列表每 3 秒重排也能一眼认出是哪个
+function markcard(pid) {
+  const list = el('proclist')
+  if (!list) return
+  for (const node of list.children) {
+    if (pid && node.dataset.pid === String(pid)) node.setAttribute('aria-current', 'true')
+    else node.removeAttribute('aria-current')
+  }
+}
+
 async function open(pid) {
   const sheet = el('procsheet')
   if (!sheet) return
@@ -310,9 +398,19 @@ async function open(pid) {
   const st = el('procstamp')
   if (st) st.textContent = ''
   const meta = el('procmeta')
-  if (meta) meta.textContent = '读取中…'
+  if (meta) {
+    meta.textContent = '读取中…'
+    // 读取要等一会儿，挂个扫光让等待有反馈
+    meta.dataset.busy = '1'
+  }
   el('procbody').replaceChildren()
-  sheet.hidden = false
+  markcard(pid)
+  // 入场动画只在元素从 display:none 变回来时重播
+  // 换一条再点开时就靠这一步重头播，否则只有第一次展开有动效
+  delete sheet.dataset.shut
+  sheet.hidden = true
+  void sheet.offsetWidth
+  opensheet(sheet)
   try {
     const res = await fetch(`/__proc?pid=${pid}`, { cache: 'no-store' })
     const doc = await res.json()
@@ -320,14 +418,18 @@ async function open(pid) {
     render(doc)
   } catch (err) {
     if (meta) meta.textContent = `读取失败：${err.message}`
+  } finally {
+    if (meta) delete meta.dataset.busy
   }
 }
 
 function close() {
   const sheet = el('procsheet')
-  if (sheet) sheet.hidden = true
+  const wasopen = state.openpid
   state.openpid = 0
   resetarm()
+  // 高亮等面板收完再摘，退场过程中那张卡还是亮的
+  if (sheet) shutsheet(sheet, () => wasopen && markcard(0))
 }
 
 async function kill(pid) {

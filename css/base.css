@@ -4,10 +4,14 @@
   --accent-rgb: 43, 43, 255;
   --bg: #f7f8ff;
   --card: #ffffff;
+  /* 开关圆钮：浅色下是白钮，深色下要留一点亮度，不能跟着卡片一起沉下去 */
+  --knob: #ffffff;
   --fg: #1b1e39;
   --fg-dim: #6f7392;
   --fg-soft: #33365a;
   --blue: rgb(var(--accent-rgb));
+  /* 文字/描边用的强调色：浅色下就是原色，深色下要单独提亮 */
+  --accent-ink: rgb(var(--accent-rgb));
   --line: rgba(var(--accent-rgb), 0.2);
   --line-strong: rgba(var(--accent-rgb), 0.55);
   --shift: 0.75rem 0.75rem 2px 1px rgba(var(--accent-rgb), 0.2);
@@ -19,7 +23,7 @@
   --font: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans SC", sans-serif;
 }
 
-/* 主题色只换强调色与底色，白卡和投影结构保持不变 */
+/* 主题色只换强调色与底色，卡片和投影结构不跟着变 */
 html[data-theme="blue"] {
   --accent-rgb: 43, 43, 255;
   --bg: #f7f8ff;
@@ -53,6 +57,95 @@ html[data-theme="rose"] {
 html[data-theme="slate"] {
   --accent-rgb: 51, 65, 85;
   --bg: #f5f6f8;
+}
+
+/* 深色模式只换底色与文字色，强调色仍由上面那套主题色决定
+   放在主题块之后，同优先级下后写的赢，切主题不会把深色底色顶掉 */
+html[data-mode="dark"] {
+  color-scheme: dark;
+  --bg: #12141f;
+  --card: #1b1e2b;
+  --knob: #dfe3f5;
+  --fg: #e7e9f5;
+  --fg-dim: #9a9fbe;
+  --fg-soft: #c7cbe0;
+  --line: color-mix(in srgb, var(--accent-ink) 30%, transparent);
+  --line-strong: color-mix(in srgb, var(--accent-ink) 62%, transparent);
+  --tint-1: color-mix(in srgb, var(--blue) 10%, var(--card));
+  --tint-2: color-mix(in srgb, var(--blue) 18%, var(--card));
+  --tint-3: color-mix(in srgb, var(--blue) 30%, var(--card));
+  --wash: color-mix(in srgb, var(--blue) 8%, var(--bg));
+  --shift: 0.75rem 0.75rem 2px 1px rgba(0, 0, 0, 0.45);
+  --shift-flip: -0.75rem 0.75rem 2px -1px rgba(0, 0, 0, 0.45);
+  /* 深色底上原色偏暗，蓝/紫/石墨的对比度会掉到 2.5:1 左右
+     这里把原色往白里提一档，只给文字和描边用，实心底仍是 --blue */
+  --accent-ink: color-mix(in srgb, var(--blue) 65%, #fff);
+}
+
+/* 状态色在深色底上要提亮，否则红绿都糊成一团
+   选择器多带一层 html[data-mode]，靠特异性压过后面的组件样式，不依赖加载顺序 */
+html[data-mode="dark"] .panel-state[data-tone="ok"],
+html[data-mode="dark"] .logstate[data-tone="live"],
+html[data-mode="dark"] .reqstat[data-tone="ok"],
+html[data-mode="dark"] .reqchip[data-tone="ok"],
+html[data-mode="dark"] .savehint[data-tone="ok"] {
+  color: #4ade80;
+}
+
+html[data-mode="dark"] .panel-state[data-tone="bad"],
+html[data-mode="dark"] .logstate[data-tone="bad"],
+html[data-mode="dark"] .reqstat[data-tone="bad"],
+html[data-mode="dark"] .reqchip[data-tone="bad"],
+html[data-mode="dark"] .savehint[data-tone="bad"],
+html[data-mode="dark"] .sysdb[data-ok="false"] .sysdb-cell b,
+html[data-mode="dark"] .field-hint[data-tone="bad"],
+html[data-mode="dark"] .chat-file-del:hover,
+html[data-mode="dark"] .pcflag,
+html[data-mode="dark"] .reqsheet-del,
+html[data-mode="dark"] .keyconfirm,
+html[data-mode="dark"] .btn-danger,
+html[data-mode="dark"] .usagemeta-val[data-tone="bad"],
+html[data-mode="dark"] .chkrow[data-ok="0"] .chkdetail {
+  color: #ff7a9c;
+}
+
+html[data-mode="dark"] .logstate[data-tone="warn"],
+html[data-mode="dark"] .reqstat[data-tone="warn"],
+html[data-mode="dark"] .reqchip[data-tone="warn"],
+html[data-mode="dark"] .logrow-warn,
+html[data-mode="dark"] .loglevel-warn,
+html[data-mode="dark"] .reqsec-note {
+  color: #fbbf24;
+}
+
+html[data-mode="dark"] .logrow-warn .logmsg {
+  color: #fcd34d;
+}
+
+html[data-mode="dark"] .logrow-error,
+html[data-mode="dark"] .loglevel-error {
+  color: #ff7a9c;
+}
+
+html[data-mode="dark"] .logrow-error .logmsg {
+  color: #ffa3bb;
+}
+
+html[data-mode="dark"] .logtime,
+html[data-mode="dark"] .reqtime {
+  color: #8a90b0;
+}
+
+html[data-mode="dark"] .reqsrc[data-source="opencode"] {
+  color: #2dd4bf;
+}
+
+html[data-mode="dark"] .reqsrc[data-source="codex"] {
+  color: #c4b5fd;
+}
+
+html[data-mode="dark"] .reqsrc[data-source="astrbot"] {
+  color: #fbbf24;
 }
 
 *,
@@ -107,7 +200,7 @@ img {
 }
 
 :focus-visible {
-  outline: 2px solid var(--blue);
+  outline: 2px solid var(--accent-ink);
   outline-offset: 0.1875rem;
 }
 
@@ -118,11 +211,126 @@ summary:focus:not(:focus-visible) {
   outline: none;
 }
 
+/* 切页时新视图淡入，硬切会让整页闪一下
+   只动 opacity：一旦给 .view 挂上 transform，它就成了层叠上下文和包含块，
+   里面的 position: fixed（保存提示、请求详情、长按菜单）会改按这个视图定位 */
+@keyframes viewin {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.view-in {
+  /* 用 backwards 只影响开播前那一帧，播完不留残值，避免动画结束还挂着层叠上下文 */
+  animation: viewin 0.24s cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
+}
+
+/* 数值变化时轻轻闪一下底色，只在内容真变了才播 */
+@keyframes valflash {
+  from {
+    background-color: rgba(var(--accent-rgb), 0.16);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+.valflash {
+  animation: valflash 0.5s ease-out backwards;
+  border-radius: 0.1875rem;
+}
+
+/* 换主题时整站颜色变量一起跳变，过渡期间统一给颜色类属性补个过渡
+   只活二百多毫秒，过完就摘类，不长期压在全局选择器上 */
+html.themeing *,
+html.themeing *::before,
+html.themeing *::after {
+  transition:
+    background-color 0.24s ease,
+    border-color 0.24s ease,
+    color 0.24s ease !important;
+}
+
+/* 数据没到时的占位骨架：按每块原本的形状摆条，不摆横线也不留白洞
+   值一变就整块换掉，所以只用颜色打底，不带尺寸动画 */
+.ghost {
+  display: block;
+  border-radius: 0.25rem;
+  background: linear-gradient(
+    90deg,
+    var(--tint-2) 25%,
+    var(--tint-3) 50%,
+    var(--tint-2) 75%
+  );
+  background-size: 300% 100%;
+  animation: ghostdrift 1.6s linear infinite;
+}
+
+@keyframes ghostdrift {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* 占位行不接事件、不显手型，鼠标扫过也不该有悬停反馈 */
+.ghostrow {
+  pointer-events: none;
+  cursor: default;
+}
+
+.ghostdot {
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 50%;
+  align-self: center;
+}
+
+.ghostbar {
+  height: 0.5rem;
+}
+
+.ghostname {
+  height: 0.5625rem;
+}
+
+.ghostnum {
+  width: 2.75rem;
+  height: 0.5625rem;
+  justify-self: end;
+}
+
+/* 摆位跟真柱子一致，只是还没数 */
+.ghostcol .ghostbar {
+  width: 74%;
+  border-radius: 0.125rem 0.125rem 0 0;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     transition-duration: 0.001ms !important;
+    transition-delay: 0s !important;
     animation-duration: 0.001ms !important;
+    /* 错峰延迟也要清掉，否则关掉动效后元素还得干等几百毫秒才出现 */
+    animation-delay: 0s !important;
   }
+}
+
+/* 中性灰点在深色底上会发白，换成低亮度的一档 */
+html[data-mode="dark"] .apidot,
+html[data-mode="dark"] .apirow[data-on="false"] .apidot {
+  background: #4a4f6b;
+}
+
+/* 色卡外圈在深色底上要用亮描边，否则跟卡片糊在一起 */
+html[data-mode="dark"] .swatch-dot {
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 -0.375rem 0.625rem rgba(255, 255, 255, 0.1);
 }
