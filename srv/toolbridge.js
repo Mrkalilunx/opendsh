@@ -119,10 +119,13 @@ function bridge() {
 }
 
 // 返回要发上去的 tools、要追加的说明文字、以及桥的名字映射
-// 客户端工具装得下就原样放行，装不下才启用桥
+// budget 为 0 表示不限：工具全量直发，不装桥
+// 装得下就原样放行，装不下才启用桥
 export function plantools(clienttools, basecount, budget, enabled) {
   const base = Math.max(0, Number(basecount) || 0)
-  const limit = Math.max(base, Number(budget) || 15)
+  const cap = Number(budget)
+  // 不限名额时给一个足够大的数，桥自然不启用
+  const limit = cap > 0 ? Math.max(base, cap) : Number.MAX_SAFE_INTEGER
   const slots = Math.max(0, limit - base)
   const list = Array.isArray(clienttools) ? clienttools.filter((t) => t && t.function && t.function.name) : []
 
