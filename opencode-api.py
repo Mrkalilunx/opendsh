@@ -23,7 +23,7 @@
 
 1. 门禁在 TLS 层，四个条件必须同时满足，缺一即 429：
      ① ClientHello 指纹（JA3）—— 见下方 JA3 常量；
-     ② 请求头 user-agent: opencode/latest/2.0.22/cli + 4 个 session 头；
+     ② 请求头 user-agent: opencode/2.0.22/cli + 4 个 session 头；
      ③ session id 结构合法 —— 见 new_session_id()；
      ④ body 的 system prompt 必须是 OpenCode 原版、tools 必须非空。
    普通 curl / urllib 一律 429，curl_cffi 只有配上 ja3= 才通得过。
@@ -198,7 +198,7 @@ TEMPLATE = Path(os.environ.get("OCASK_TEMPLATE", HERE / "ocask-body.json"))
 
 ENDPOINT = "https://opencode.ai/inference/openai/v1/chat/completions"
 MODELS_ENDPOINT = "https://opencode.ai/inference/v1/models"
-USER_AGENT = "opencode/latest/2.0.22/cli"
+USER_AGENT = "opencode/2.0.22/cli"
 DEFAULT_MODEL = "deepseek-v4.1-flash-free"
 # OpenAI 响应里的 system_fingerprint，随便编一个稳定值即可
 SYSTEM_FINGERPRINT = "fp_opencode"

@@ -12,7 +12,9 @@ const template = path.join(here, '..', 'res', 'ocask-body.json')
 
 export const endpoint = 'https://opencode.ai/inference/openai/v1/chat/completions'
 export const modelsendpoint = 'https://opencode.ai/inference/v1/models'
-export const useragent = 'opencode/latest/2.0.22/cli'
+// 门禁按 user-agent 认客户端，带 latest 段的旧写法会被当成非官方客户端直接 429
+// 只认 opencode/<版本> 或 opencode/<版本>/<客户端>，改动前先用 /raw/v1 实发一次确认
+export const useragent = 'opencode/2.0.22/cli'
 export const defaultmodel = process.env.model || 'deepseek-v4.1-flash-free'
 
 // 429 回给客户端的冷却秒数，设置页可调
