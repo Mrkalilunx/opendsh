@@ -140,10 +140,18 @@ async function load() {
     const doc = await res.json()
     fill(doc.settings)
     paintpaths(doc.paths)
+    paintua(doc.defaultua)
     says('')
   } catch (err) {
     says(`读取失败：${err.message}`, 'bad')
   }
+}
+
+// UA 那栏留空走的就是默认值，占位符直接写出默认值，别让人猜
+function paintua(defaultua) {
+  const input = el('setua')
+  if (!input || !defaultua) return
+  input.placeholder = defaultua
 }
 
 // 路径那几项只显示当前生效值，输入框留空就说明走默认

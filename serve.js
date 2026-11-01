@@ -8,7 +8,7 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as chat from './srv/chatproxy.js'
-import { listmodels, probeuseragent, finduseragent, useragent } from './srv/upstream.js'
+import { listmodels, probeuseragent, finduseragent, useragent, defaultuseragent } from './srv/upstream.js'
 import { loadproxies, nextproxy, resetpool, setsids, addsid, snapshot as sessionsnapshot } from './srv/sessions.js'
 import { lookup as lookupip } from './srv/egressip.js'
 import { createkey, deletekey, listkeys, loadkeys } from './srv/apikey.js'
@@ -248,10 +248,10 @@ async function uaroute(req, res) {
   try {
     if (want) {
       const one = await probeuseragent(want)
-      return text(res, 200, types['.json'], JSON.stringify({ ua: want, current: useragent(), one }))
+      return text(res, 200, types['.json'], JSON.stringify({ ua: want, current: useragent(), defaultua: defaultuseragent, one }))
     }
     const found = await finduseragent()
-    return text(res, 200, types['.json'], JSON.stringify({ current: useragent(), ...found }))
+    return text(res, 200, types['.json'], JSON.stringify({ current: useragent(), defaultua: defaultuseragent, ...found }))
   } catch (err) {
     return text(res, 503, types['.json'], JSON.stringify({ error: err.message }))
   }
@@ -264,6 +264,7 @@ async function settingsroute(req, res) {
       schema: schema(),
       defaults: defaults(),
       fakes: tokens.map((it) => ({ ...it })),
+      defaultua: defaultuseragent,
       paths: await pathinfo(),
     }))
   }
