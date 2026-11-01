@@ -11,6 +11,7 @@ const fields = {
   temp: 'settemp',
   maxtok: 'setmaxtok',
   toolbudget: 'setbudget',
+  useragent: 'setua',
   statedir: 'setstatedir',
   dbhost: 'setdbhost',
   dbport: 'setdbport',
@@ -113,6 +114,7 @@ function collect() {
     temp: num('settemp'),
     maxtok: num('setmaxtok'),
     toolbudget: num('setbudget'),
+    useragent: text('setua'),
     statedir: text('setstatedir'),
     dbhost: text('setdbhost'),
     dbport: num('setdbport'),
@@ -309,5 +311,45 @@ export function mountsettings() {
     save(collect())
   })
 
+  el('uabtn')?.addEventListener('click', testua)
+
   return load()
+}
+
+// 让服务端把候选 UA 挨个试一遍，第一个能通的直接填进输入框并保存
+// 自测要真打上游，慢的时候十几秒，按钮期间禁用并给出进度
+async function testua() {
+  const btn = el('uabtn')
+  const note = el('uatestnote')
+  if (!btn) return
+  btn.disabled = true
+  if (note) {
+    note.textContent = '正在试，每个写法都要真打一次上游，可能要十几秒'
+    note.dataset.tone = ''
+  }
+  try {
+    const res = await fetch('/__ua', { method: 'POST', cache: 'no-store', headers: { 'content-type': 'application/json' }, body: '{}' })
+    const doc = await res.json()
+    if (!res.ok) throw new Error(doc.error || `HTTP ${res.status}`)
+    const rows = (doc.tried || []).map((one) => `${one.ok ? '✓' : '✗'} ${one.ua}${one.ok ? '' : `（${one.detail}）`}`)
+    if (doc.ok) {
+      const input = el('setua')
+      if (input) input.value = doc.ua
+      await save(collect())
+      if (note) {
+        note.textContent = `可用：${doc.ua}　已保存。${rows.join('　')}`
+        note.dataset.tone = ''
+      }
+    } else if (note) {
+      note.textContent = `候选写法全不通：${rows.join('　')}`
+      note.dataset.tone = 'bad'
+    }
+  } catch (err) {
+    if (note) {
+      note.textContent = `自测失败：${err.message}`
+      note.dataset.tone = 'bad'
+    }
+  } finally {
+    btn.disabled = false
+  }
 }

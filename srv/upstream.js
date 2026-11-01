@@ -14,9 +14,52 @@ const template = path.join(here, '..', 'res', 'ocask-body.json')
 const base = String(process.env.upstream || 'https://opencode.ai/inference').replace(/\/+$/, '')
 export const endpoint = `${base}/openai/v1/chat/completions`
 export const modelsendpoint = `${base}/v1/models`
-// 门禁按 user-agent 认客户端，带 latest 段的旧写法会被当成非官方客户端直接 429
-// 只认 opencode/<版本> 或 opencode/<版本>/<客户端>，改动前先用 /raw/v1 实发一次确认
-export const useragent = 'opencode/2.0.22/cli'
+// 门禁按 user-agent 认客户端，实测能过的是 opencode/<版本> 与 opencode/latest/<版本> 这两类
+// 只剩 opencode/latest 或光秃秃的 opencode 会被判成非官方客户端，回 429 且文案伪装成额度问题
+// 设置里填了就照填的发，没填时用下面这套自动探测的结果
+export const defaultuseragent = 'opencode/latest/2.0.22/cli'
+
+// 自动探测的结果放内存里，省得每个请求都去试一遍
+let autoua = ''
+let autoing = null
+
+// 当前该用的 UA：设置填了优先，其次自动探测到的，最后是代码里的默认值
+// 这里绝不能顺手去探测，探测本身要发一次真请求，会打乱调用方的重试节奏
+export function useragent() {
+  const want = String(getsettings().useragent || '').trim()
+  return want || autoua || defaultuseragent
+}
+
+// 上游以门禁为由拒了（文案伪装成额度问题），就在后台试一遍候选写法
+// 只探一次，探到的结果供后续请求用；当前这次仍然按原样失败，不阻塞
+export function kickautouseragent() {
+  if (autoing || autoua) return autoing
+  autoing = (async () => {
+    try {
+      const found = await finduseragent()
+      if (found.ok) {
+        autoua = found.ua
+        log.info(`UA 自动探测：${autoua} 可用`)
+      } else {
+        log.warn('UA 自动探测：候选写法全部不通，继续用当前值')
+      }
+    } catch (err) {
+      log.warn(`UA 自动探测失败：${(err && err.message) || err}`)
+    } finally {
+      autoing = null
+    }
+  })()
+  return autoing
+}
+
+// 手动重测：设置页点一下就走这里，结果直接换成新值
+export async function refreshuseragent() {
+  autoing = null
+  autoua = ''
+  await kickautouseragent()
+  return autoua
+}
+
 export const defaultmodel = process.env.model || 'deepseek-v4.1-flash-free'
 
 // 429 回给客户端的冷却秒数，设置页可调
@@ -72,7 +115,7 @@ export async function buildbody(messages, model, params = {}) {
 
 function headers(sid) {
   return {
-    'user-agent': useragent,
+    'user-agent': useragent(),
     'content-type': 'application/json',
     // 四个 session 头是门禁的一部分，值必须一致
     'x-opencode-session': sid,
@@ -123,6 +166,9 @@ export async function openstream(body, signal) {
     const err = new APIError(res.status, text, res.headers.get('retry-after'))
     last = err
     log.warn(`上游返回 ${res.status}：${text.slice(0, 160)}`)
+    // 429 的两种原因正文一模一样：真额度用完，和 UA 形态没过门禁
+    // 分不出来就顺手在后台探一次候选写法，只探一次，探到能用的下次请求自动换
+    if (res.status === 429) kickautouseragent()
     // 只有免费额度类 429 值得换出口，门禁 429 换 IP 也没用
     if (res.status !== 429 || !text.includes('FreeUsageLimitError')) throw err
     if (!reset) {
@@ -170,7 +216,7 @@ export async function listmodels(fresh = false) {
   if (!fresh && modelscache && Date.now() - modelsat < ttl) return modelscache
   let res
   try {
-    res = await fetch(modelsendpoint, { headers: { 'user-agent': useragent } })
+    res = await fetch(modelsendpoint, { headers: { 'user-agent': useragent() } })
   } catch (err) {
     throw new APIError(0, `请求失败: ${err.message}`)
   }
@@ -179,6 +225,79 @@ export async function listmodels(fresh = false) {
   modelscache = Array.isArray(doc) ? doc : doc.data || []
   modelsat = Date.now()
   return modelscache
+}
+
+// 候选写法：门禁认 opencode/<版本> 与 opencode/latest/<版本>，可再带一个客户端段
+// 排在前面的优先，自测按这个顺序挨个试，第一个通过的就用
+export function uacandidates() {
+  const ver = '2.0.22'
+  return [
+    `opencode/latest/${ver}/cli`,
+    `opencode/${ver}/cli`,
+    `opencode/latest/${ver}`,
+    `opencode/${ver}`,
+    `opencode/latest`,
+    `opencode`,
+  ]
+}
+
+// 用指定 UA 打一次最小的 chat 请求，只看能不能过门禁
+// 模型列表接口对 UA 不设防，拿它试会全部通过，所以必须打 chat 端点
+// 请求压到最短：一句招呼、不写太多字，只为拿状态码
+export async function probeuseragent(ua, timeoutms = 20000) {
+  const want = String(ua || '').trim()
+  if (!want) return { ua: '', ok: false, status: 0, detail: 'UA 不能填空' }
+  const sid = nextsid()
+  const ac = new AbortController()
+  const timer = setTimeout(() => ac.abort(), Math.max(2000, Number(timeoutms) || 20000))
+  const body = await buildbody(
+    [{ role: 'user', content: '只回一个字：好' }],
+    defaultmodel,
+    { max_tokens: 8, temperature: 0 },
+  )
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'user-agent': want,
+        'content-type': 'application/json',
+        'x-opencode-session': sid,
+        'x-opencode-session-id': sid,
+        'x-session-affinity': sid,
+        'x-session-id': sid,
+      },
+      body: JSON.stringify(body),
+      signal: ac.signal,
+    })
+    if (res.status === 200) {
+      // 200 之后不读流，直接把连接丢掉，省额度
+      try {
+        await res.body?.cancel()
+      } catch {
+        // 取消失败无所谓，状态码已经拿到了
+      }
+      return { ua: want, ok: true, status: 200, detail: '可用，已通过门禁' }
+    }
+    const text = await res.text()
+    return { ua: want, ok: false, status: res.status, detail: `HTTP ${res.status}：${text.slice(0, 200)}` }
+  } catch (err) {
+    const why = err && err.name === 'AbortError' ? '超时' : `请求失败: ${(err && err.message) || err}`
+    return { ua: want, ok: false, status: 0, detail: why }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+// 按候选顺序挨个试，返回第一个能通的
+// 设置页点一下就能知道当前该填什么，不用自己猜
+export async function finduseragent() {
+  const tried = []
+  for (const ua of uacandidates()) {
+    const one = await probeuseragent(ua)
+    tried.push(one)
+    if (one.ok) return { ua: one.ua, ok: true, tried }
+  }
+  return { ua: '', ok: false, tried }
 }
 
 export function normusage(usage) {

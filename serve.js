@@ -8,7 +8,7 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as chat from './srv/chatproxy.js'
-import { listmodels } from './srv/upstream.js'
+import { listmodels, probeuseragent, finduseragent, useragent } from './srv/upstream.js'
 import { loadproxies, nextproxy, resetpool, setsids, addsid, snapshot as sessionsnapshot } from './srv/sessions.js'
 import { lookup as lookupip } from './srv/egressip.js'
 import { createkey, deletekey, listkeys, loadkeys } from './srv/apikey.js'
@@ -138,6 +138,7 @@ async function route(req, res) {
   if (p === '/__selfcheck') return checkroute(req, res)
   if (p === '/__proc') return procroute(req, res, url)
   if (p === '/__settings') return settingsroute(req, res)
+  if (p === '/__ua') return uaroute(req, res)
   if (p === '/__usage') return usageroute(req, res, url)
   if (p === '/__sessions') return sessionsroute(req, res)
   if (p === '/__ip') return iproute(req, res, url)
@@ -226,6 +227,34 @@ async function readbody(req) {
   const parts = []
   for await (const part of req) parts.push(part)
   return Buffer.concat(parts).toString('utf8')
+}
+
+// UA 自测：不带参数就把候选写法挨个试一遍，带 ua 就只验这一条
+// 门禁只在 chat 接口上，所以这里每次都真的发一次最小请求
+async function uaroute(req, res) {
+  if (req.method !== 'GET' && req.method !== 'POST') return text(res, 405, types['.txt'], '405 method not allowed')
+  let want = ''
+  if (req.method === 'POST') {
+    try {
+      const doc = JSON.parse(await readbody(req))
+      want = String((doc && doc.ua) || '').trim()
+    } catch {
+      return text(res, 400, types['.json'], JSON.stringify({ error: '请求体不是合法 JSON' }))
+    }
+  } else {
+    want = String(new URL(req.url, 'http://localhost').searchParams.get('ua') || '').trim()
+  }
+
+  try {
+    if (want) {
+      const one = await probeuseragent(want)
+      return text(res, 200, types['.json'], JSON.stringify({ ua: want, current: useragent(), one }))
+    }
+    const found = await finduseragent()
+    return text(res, 200, types['.json'], JSON.stringify({ current: useragent(), ...found }))
+  } catch (err) {
+    return text(res, 503, types['.json'], JSON.stringify({ error: err.message }))
+  }
 }
 
 async function settingsroute(req, res) {
