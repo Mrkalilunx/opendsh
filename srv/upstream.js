@@ -16,33 +16,41 @@ export const endpoint = `${base}/openai/v1/chat/completions`
 export const modelsendpoint = `${base}/v1/models`
 // 门禁按 user-agent 认客户端，实测能过的是 opencode/<版本> 与 opencode/latest/<版本> 这两类
 // 只剩 opencode/latest 或光秃秃的 opencode 会被判成非官方客户端，回 429 且文案伪装成额度问题
-// 设置里填了就照填的发，没填时用下面这套自动探测的结果
+// 默认值优先；只有默认值被上游拒过，才换成探测到的写法
 export const defaultuseragent = 'opencode/latest/2.0.22/cli'
 
-// 自动探测的结果放内存里，省得每个请求都去试一遍
-let autoua = ''
+// 默认值被拒后才记下来的替代写法，平时一直是空的
+let fallbackua = ''
+let defaultbad = false
 let autoing = null
 
-// 当前该用的 UA：设置填了优先，其次自动探测到的，最后是代码里的默认值
+// 当前该用的 UA：设置填了优先，其次默认值，最后才是探测到的替代写法
 // 这里绝不能顺手去探测，探测本身要发一次真请求，会打乱调用方的重试节奏
 export function useragent() {
   const want = String(getsettings().useragent || '').trim()
-  return want || autoua || defaultuseragent
+  if (want) return want
+  if (defaultbad && fallbackua) return fallbackua
+  return defaultuseragent
 }
 
 // 上游以门禁为由拒了（文案伪装成额度问题），就在后台试一遍候选写法
-// 只探一次，探到的结果供后续请求用；当前这次仍然按原样失败，不阻塞
+// 默认值已经确认不通时不再重复探，免得真额度用完时白白消耗请求
 export function kickautouseragent() {
-  if (autoing || autoua) return autoing
+  if (autoing || defaultbad) return autoing
   autoing = (async () => {
     try {
       const found = await finduseragent()
-      if (found.ok) {
-        autoua = found.ua
-        log.info(`UA 自动探测：${autoua} 可用`)
-      } else {
-        log.warn('UA 自动探测：候选写法全部不通，继续用当前值')
+      if (!found.ok) {
+        log.warn('UA 自动探测：候选写法全部不通，继续用默认值')
+        return
       }
+      if (found.ua === defaultuseragent) {
+        log.info('UA 自动探测：默认写法可用')
+        return
+      }
+      fallbackua = found.ua
+      defaultbad = true
+      log.info(`UA 自动探测：默认写法不通，改用 ${fallbackua}`)
     } catch (err) {
       log.warn(`UA 自动探测失败：${(err && err.message) || err}`)
     } finally {
@@ -52,12 +60,13 @@ export function kickautouseragent() {
   return autoing
 }
 
-// 手动重测：设置页点一下就走这里，结果直接换成新值
+// 手动重测：设置页点一下就走这里，默认值也重新试一遍
 export async function refreshuseragent() {
   autoing = null
-  autoua = ''
+  fallbackua = ''
+  defaultbad = false
   await kickautouseragent()
-  return autoua
+  return useragent()
 }
 
 export const defaultmodel = process.env.model || 'deepseek-v4.1-flash-free'
