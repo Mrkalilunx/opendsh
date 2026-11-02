@@ -58,7 +58,7 @@ function count(shown, total) {
   setflash(node, shown === total ? String(total) : `${shown}/${total}`)
 }
 
-// 来源的显示名，跟后端 sources 一一对应
+// 来源的显示名，键要与后端 sourceof() 的返回值一致
 const srclabel = {
   opencode: 'opencode',
   codex: 'codex',

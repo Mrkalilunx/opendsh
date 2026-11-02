@@ -35,16 +35,6 @@ export function dataroot() {
   return root
 }
 
-// 默认 MariaDB 数据目录
-export function datadirdefault() {
-  return path.join(root, 'mysql')
-}
-
-// 旧目录一直是 srv/.state，切换目录后还能拿它当只读后备
-export function homedir() {
-  return home
-}
-
 // 读状态文件：当前目录找不到就依次退回默认根目录和老目录，换目录不丢老数据
 export async function readstate(name) {
   const tried = new Set()

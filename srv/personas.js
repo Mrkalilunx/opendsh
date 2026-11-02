@@ -32,11 +32,6 @@ export function listpersonas() {
   return { items: items.map((item) => ({ ...item })), active, text: hit ? hit.text : '' }
 }
 
-export function activepersona() {
-  const hit = items.find((item) => item.id === active)
-  return hit ? hit.text : ''
-}
-
 function clean(text) {
   const body = String(text || '').replace(/\r\n?/g, '\n').trim()
   if (!body) throw new Error('人设内容不能为空')

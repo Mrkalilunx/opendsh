@@ -3,7 +3,7 @@
 
 const el = (id) => document.getElementById(id)
 
-const state = { days: 7, busy: false, last: 0 }
+const state = { days: 7, busy: false }
 
 // token 数字很大，过万换成 k / M，保留一位小数够看趋势
 function human(n) {
@@ -264,19 +264,14 @@ function paintlist(id, noteid, list, nameof) {
   // 抬头只留两项数字，无数据的条数在列表底部单独说，挤在标题旁边会被截掉
   if (note) note.textContent = `新增 ${human(sumNew)} · 含缓存 ${human(sum)}`
 
-  // 老记录最多摆这么几行，再多就只留一句提示，免得把有数据的挤没影
-  const staleMax = 0
-  let staleShown = 0
-
   list.forEach((one, index) => {
     const total = Number(one.ttok) || 0
-    const stale = !(total > 0) && Number(one.calls) > 0
-    if (stale && staleShown >= staleMax) return
-    if (stale) staleShown += 1
+    // 有请求但一个 token 都没有的，是 token 列上线之前的老记录，一律不列
+    // 它们混进图里会变成一条贴底的零柱，让人误以为是零消耗，只在底部报个数
+    if (!(total > 0) && Number(one.calls) > 0) return
     const li = document.createElement('li')
     li.className = 'usageline'
     li.style.setProperty('--delay', `${index * 45}ms`)
-    if (stale) li.dataset.stale = '1'
 
     const name = document.createElement('span')
     name.className = 'usagelinename'
@@ -292,39 +287,32 @@ function paintlist(id, noteid, list, nameof) {
 
     const num = document.createElement('span')
     num.className = 'usagelinenum'
-    // 老记录没有 token，统一写 0，靠下面的说明区分「没数据」和「零消耗」
-    if (stale) num.textContent = '0'
-    else roll(num, total, null, 620)
-    num.title = stale ? '这批请求早于 token 统计，上游没有回用量' : exact(total)
+    roll(num, total, null, 620)
+    num.title = exact(total)
 
     const sub = document.createElement('span')
     sub.className = 'usagelinesub'
-    if (stale) {
-      sub.textContent = `${exact(one.calls)} 次 · 早于 token 统计，没有用量数据`
-    } else {
-      // 输入输出拆开看，缓存命中率决定实际花多少钱
-      const hit =
-        Number(one.ptok) > 0 ? Math.round((Number(one.cachetok) / Number(one.ptok)) * 100) : 0
-      const parts = [
-        `${exact(one.calls)} 次`,
-        `入 ${human(one.ptok)}（新增 ${human(one.newtok)}）`,
-        `出 ${human(one.ctok)}`,
-      ]
-      if (hit) parts.push(`缓存 ${hit}%`)
-      if (one.usd) parts.push(cash(one.usd))
-      sub.textContent = parts.join(' · ')
-    }
+    // 输入输出拆开看，缓存命中率决定实际花多少钱
+    const hit =
+      Number(one.ptok) > 0 ? Math.round((Number(one.cachetok) / Number(one.ptok)) * 100) : 0
+    const parts = [
+      `${exact(one.calls)} 次`,
+      `入 ${human(one.ptok)}（新增 ${human(one.newtok)}）`,
+      `出 ${human(one.ctok)}`,
+    ]
+    if (hit) parts.push(`缓存 ${hit}%`)
+    if (one.usd) parts.push(cash(one.usd))
+    sub.textContent = parts.join(' · ')
 
     li.append(name, bar, num, sub)
     box.append(li)
   })
 
-  // 被折叠掉的那批只留一句，点不了也不占高度
-  const hidden = blind - staleShown
-  if (hidden > 0) {
+  // 老记录不列进图里，只在底部报个总数
+  if (blind > 0) {
     const tail = document.createElement('li')
     tail.className = 'usageempty'
-    tail.textContent = `另有 ${hidden} 项早于 token 统计，没有用量数据`
+    tail.textContent = `另有 ${blind} 项早于 token 统计，没有用量数据`
     box.append(tail)
   }
 }
@@ -336,7 +324,6 @@ async function pull() {
     const res = await fetch(`/__usage?days=${state.days}`, { cache: 'no-store' })
     const doc = await res.json()
     if (doc.error) throw new Error(doc.error)
-    state.last = doc.at || Date.now()
     paint(doc)
   } catch (err) {
     // 读失败就把骨架撤了，留着转只会让人以为还在加载

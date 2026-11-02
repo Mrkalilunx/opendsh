@@ -318,18 +318,3 @@
   font-size: 0.6875rem;
   color: var(--fg-dim);
 }
-
-/* 早于 token 统计的老记录：整行压暗，一眼区分「没数据」和「零消耗」 */
-.usageline[data-stale="1"] {
-  border-bottom-style: dashed;
-}
-
-.usageline[data-stale="1"] .usagelinename,
-.usageline[data-stale="1"] .usagelinenum {
-  color: var(--fg-dim);
-  font-weight: 600;
-}
-
-.usageline[data-stale="1"] .usagelinebar {
-  opacity: 0.3;
-}

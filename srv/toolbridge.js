@@ -98,13 +98,6 @@ function parseargs(raw) {
   }
 }
 
-// 出站调用原样透传：改名已经在 aliasnames 那一层做完了
-// 桥拆掉之后这里不再有需要摊平的东西，保留函数是为了调用点不用改结构
-export function unwrapcalls(calls) {
-  if (!Array.isArray(calls)) return { calls: [], dropped: 0, names: [], argless: [] }
-  return { calls, dropped: 0, names: [], argless: [] }
-}
-
 // 出站闸门之一：名字必须真在客户端那份 tools 里
 // 上游偶尔把名字写成对象、写成半截 JSON，或者编一个不存在的名字
 // 这些原样发下去客户端只会报 No tool named，所以在这层拦掉让上游重问
@@ -158,9 +151,9 @@ export function missnote(missing) {
   if (!Array.isArray(missing) || !missing.length) return ''
   const parts = []
   for (const one of missing.slice(0, 3)) {
-    const keys = (one.keys || []).filter((k) => k !== '（整份参数）')
+    const keys = one.keys || []
     if (!keys.length) {
-      // 整份参数都没给，说缺哪个键没意义，直接点名
+      // 拿不到必填键清单时说不清缺哪个，直接点名
       parts.push(`${one.name} 没给参数`)
       continue
     }

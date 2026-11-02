@@ -3,17 +3,11 @@
 
 import * as reqstore from './reqstore.js'
 import { listmodels } from './upstream.js'
+import { daykey } from './daykey.js'
 
 let conn = null
 let retryat = 0
 const retryms = 30000
-
-const pad = (n) => String(n).padStart(2, '0')
-
-function dayof(at) {
-  const d = new Date(at)
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-}
 
 async function db() {
   if (conn) return conn
@@ -39,7 +33,7 @@ const n = (v) => Number(v) || 0
 
 // 词表：值可能是 Date 也可能是字符串，统一成 yyyy-mm-dd
 function daytext(v) {
-  return v instanceof Date ? dayof(v.getTime()) : String(v).slice(0, 10)
+  return v instanceof Date ? daykey(v.getTime()) : String(v).slice(0, 10)
 }
 
 const zero = () => ({
@@ -129,8 +123,8 @@ function merge(into, row) {
 // opts.days 控制趋势里铺多少天，默认最近 14 天
 export async function summary(opts = {}) {
   const days = Math.max(1, Math.min(90, Number(opts.days) || 14))
-  const today = dayof(Date.now())
-  const from = dayof(Date.now() - (days - 1) * 86400000)
+  const today = daykey(Date.now())
+  const from = daykey(Date.now() - (days - 1) * 86400000)
 
   try {
     const db1 = await db()
@@ -174,7 +168,7 @@ export async function summary(opts = {}) {
     const held = new Map(daily.map((r) => [daytext(r.day), r]))
     const trend = []
     for (let i = days - 1; i >= 0; i -= 1) {
-      const day = dayof(Date.now() - i * 86400000)
+      const day = daykey(Date.now() - i * 86400000)
       const row = held.get(day)
       trend.push({ day, ...(row ? merge(zero(), row) : zero()) })
     }
@@ -196,13 +190,9 @@ export async function summary(opts = {}) {
       [from],
     )
 
-    // 活跃天数：有请求的日子；带 token 的日子单独算，日均分母用它才不会被失败请求稀释
+    // 活跃天数：有请求的日子
     const activeRes = await db1.unsafe(
       `SELECT COUNT(DISTINCT day) AS n FROM requests WHERE day >= ? AND (model <> '' OR ttok > 0)`,
-      [from],
-    )
-    const tokendayRes = await db1.unsafe(
-      'SELECT COUNT(DISTINCT day) AS n FROM requests WHERE day >= ? AND ttok > 0',
       [from],
     )
 
@@ -259,7 +249,6 @@ export async function summary(opts = {}) {
       range,
       today: todayone,
       active: n(activeRes[0] && activeRes[0].n),
-      tokendays: n(tokendayRes[0] && tokendayRes[0].n),
       quality,
       cost: { usd: lifecost.usd, today: todaycost.usd, range: rangecost.usd },
       trend,

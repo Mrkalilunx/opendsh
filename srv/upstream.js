@@ -60,15 +60,6 @@ export function kickautouseragent() {
   return autoing
 }
 
-// 手动重测：设置页点一下就走这里，默认值也重新试一遍
-export async function refreshuseragent() {
-  autoing = null
-  fallbackua = ''
-  defaultbad = false
-  await kickautouseragent()
-  return useragent()
-}
-
 export const defaultmodel = process.env.model || 'deepseek-v4.1-flash-free'
 
 // 429 回给客户端的冷却秒数，设置页可调

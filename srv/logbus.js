@@ -1,6 +1,7 @@
 // 运行日志：内存环形缓冲给 SSE 实时推送，落库交给 logstore 永久保存
 
 import * as store from './logstore.js'
+import { daykey } from './daykey.js'
 
 // 环形缓冲只给实时推送兜底，容量按条数和字节预算自己伸缩，不需要人工设置
 const ringmax = 2000
@@ -73,11 +74,6 @@ export function total() {
   return seq
 }
 
-// 当前环形缓冲里的实际条数，灌日志后回给调试页看真实留存
-export function size() {
-  return ring.length
-}
-
 // 调试用：往指定日期灌 n 条示例日志
 // 灌今天走 emit，实时页能立刻看到；灌历史日期直接落库，不进内存缓冲也不推 SSE
 export async function seed(n, day) {
@@ -112,10 +108,4 @@ function levelof(i) {
   if (i % 29 === 0) return 'error'
   if (i % 17 === 0) return 'warn'
   return 'info'
-}
-
-function daykey(at) {
-  const d = new Date(at)
-  const pad = (n) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }

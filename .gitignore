@@ -14,3 +14,7 @@ astrbotpatch/
 *.log
 *.tmp
 .DS_Store
+
+# 会话转储与请求体样本：含密钥或重复副本，不入库
+0-deepseek-api-py.json
+ocask-body.json

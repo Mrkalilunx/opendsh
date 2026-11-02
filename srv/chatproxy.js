@@ -10,7 +10,7 @@ import * as log from './logbus.js'
 import * as reqlog from './reqstore.js'
 import { verifykey } from './apikey.js'
 import { listmap, resolvemodel } from './modelmap.js'
-import { unwrapcalls, gatecalls, argcalls, needmap, missnote, rebridge, mutecalls, mutepush, aliasnames, unalias, namesnote, buildremap } from './toolbridge.js'
+import { gatecalls, argcalls, needmap, missnote, rebridge, mutecalls, mutepush, aliasnames, unalias, namesnote, buildremap } from './toolbridge.js'
 
 // 撞到不存在的工具时最多重问几次，防止模型死磕
 const maxtries = 2
@@ -149,7 +149,7 @@ async function translate(req) {
   if (maxtok > 0 && params.max_completion_tokens === undefined) params.max_completion_tokens = maxtok
 
   // 模板那 12 个必须发出去，否则上游直接报错；抑制模式只影响能否被调用
-  // 客户端 tools 追加在这 12 个之后，超出名额的折成清单加一个转发工具
+  // 客户端 tools 全量追加在这 12 个之后，不截断也不折叠
   // 客户端工具与模板重名时给客户端那个改名，否则两边会互相顶掉
   const tpl = await loadtemplate()
   const base = tpl.tools || []
@@ -189,7 +189,6 @@ async function translate(req) {
     base,
     tplnames,
     clientlist,
-    notes: [],
     allow: new Set(),
     need: new Map(),
     ns: req.__ns instanceof Map ? req.__ns : new Map(),
@@ -198,15 +197,14 @@ async function translate(req) {
   return t
 }
 
-// 客户端工具全量直发，不再按名额折叠
+// 客户端工具全量直发，模板那 12 个排在前面
 function plan(t) {
   if (t.clientlist.length) t.params.tools = [...t.base, ...t.clientlist]
   t.notes = []
   // 命名约定每轮都一样，避免同一会话里工具名忽然变
   const naming = namesnote(t.alias.size > 0, [...t.mute])
   if (naming) t.notes.push(naming)
-  // 闸门看的是「拆桥前」的名字，也就是上游那一侧的写法：
-  // c_xxx 的直接工具、以及模板那 12 个
+  // 闸门看的是上游那一侧的写法：改名后的 c_xxx 与模板那 12 个原名
   // 模板名字即使在抑制模式也先放行，交给 mutecalls 去吐提示，不在这里提前拦
   t.allow = new Set([...t.alias.keys(), ...t.tplnames])
   // 必填参数表按出站那一侧的名字算：改名后的 c_xxx、模板原名
@@ -469,8 +467,7 @@ async function chat(req, res) {
   // 非流式同样要重问：撞到不存在的工具就当作没发生，加一句提醒再问
   let r = null
   let picked = null
-  let attempt = 0
-  let forced = false
+  const box = { attempt: 0, forced: false }
   while (true) {
     let up
     try {
@@ -480,30 +477,8 @@ async function chat(req, res) {
       throw err
     }
     r = await collect(up)
-    // 先按上游名字抑制，再还原改名，否则客户端的 c_read 会被还原成 read 而误杀
-    const unwrapped = unwrapcalls(r.toolcalls)
-    const gated = gatecalls(unwrapped.calls, t.allow)
-    const raw = mutecalls(gated.calls, t.mute, t.remap)
-    // 参数闸门排在抑制之后：被抑制的模板工具该报不可用，不该报缺参数
-    const arged = argcalls(raw.calls, t.need)
-    const dropped = unwrapped.dropped + gated.dropped + raw.dropped + arged.dropped
-    const names = [...unwrapped.names, ...gated.names, ...raw.names, ...arged.names]
-    picked = { calls: unalias(arged.calls, t.alias), dropped, names, invalid: badnames(unwrapped, gated), missing: [...(unwrapped.argless || []), ...(arged.missing || [])] }
-    // 全部被吞掉、且这一轮没正文，才值得重问；有正文或还有其他可用结果就别重来
-    if (picked.dropped > 0 && !picked.calls.length && !r.text) {
-      if (attempt < maxtries) {
-        attempt++
-        log.info(`工具抑制：吞掉 ${picked.dropped} 个调用（${picked.names.join(',')}），第 ${attempt} 次重申`)
-        t.msgs = [...t.msgs, { role: 'system', content: mutepush(attempt, hintfor(t.alias, picked.names, t.remap, picked.invalid, picked.missing), picked.missing && picked.missing.length) }]
-        continue
-      }
-      if (!forced) {
-        forced = true
-        forcelast(t)
-        log.info(`工具抑制：重问用尽，改成禁工具再问一次`)
-        continue
-      }
-    }
+    picked = gating(t, r.toolcalls)
+    if (reask(t, box, picked, Boolean(r.text))) continue
     break
   }
 
@@ -542,13 +517,43 @@ function forcelast(t) {
   t.msgs = [...t.msgs, { role: 'system', content: forcemsg }]
 }
 
-// 闸门拦下的名字里，参数不全的那些名字是对的，不算「名字不存在」
-// 两类别混在一起，否则提示会自相矛盾：一边说缺参数，一边说这工具根本不存在
-function badnames(unwrapped, gated) {
-  const soft = new Set()
-  for (const one of unwrapped.argless || []) soft.add(one.name)
-  const list = [...(unwrapped.names || []), ...(gated.names || [])]
-  return list.filter((n) => !soft.has(n))
+// 出站闸门统一入口：名字白名单、抑制改派、必填参数，最后把改名还原给客户端
+// 顺序不能换：抑制必须排在还原之前，否则客户端的 c_read 会被还原成 read 而误杀
+// 参数闸门排在抑制之后：被抑制的模板工具该报不可用，不该报缺参数
+function gating(t, calls) {
+  const gated = gatecalls(calls, t.allow)
+  const raw = mutecalls(gated.calls, t.mute, t.remap)
+  const arged = argcalls(raw.calls, t.need)
+  return {
+    calls: unalias(arged.calls, t.alias),
+    dropped: gated.dropped + raw.dropped + arged.dropped,
+    names: [...gated.names, ...raw.names, ...arged.names],
+    invalid: gated.names,
+    missing: arged.missing || [],
+  }
+}
+
+// 一轮里的工具调用全被吞掉时该怎么办，返回 true 表示调用方该重开一轮
+// 只有「一个都没留下」才值得重问：部分被吞时好的那些照常发给客户端，
+// 坏的那些静默丢弃，不为一两个错名字把整轮有效的调用白扔掉
+// 先重申几次，语气一轮比一轮重；重申用尽就禁掉工具再问一次，最后才认输
+// 这一轮已经吐过正文就不能重问，否则正文会重复输出，只能就地吞掉收尾
+function reask(t, box, picked, said) {
+  if (!(picked.dropped > 0 && !picked.calls.length) || said) return false
+  if (box.attempt < maxtries) {
+    box.attempt++
+    log.info(`工具抑制：吞掉 ${picked.dropped} 个调用（${picked.names.join(',')}），第 ${box.attempt} 次重申`)
+    const hint = hintfor(t.alias, picked.names, t.remap, picked.invalid, picked.missing)
+    t.msgs = [...t.msgs, { role: 'system', content: mutepush(box.attempt, hint, picked.missing && picked.missing.length) }]
+    return true
+  }
+  if (!box.forced) {
+    box.forced = true
+    forcelast(t)
+    log.info('工具抑制：重问用尽，改成禁工具再问一次')
+    return true
+  }
+  return false
 }
 
 // 被吞掉的恰好是客户端也有同名工具时，告诉模型正确的替代名字
@@ -556,7 +561,7 @@ function hintfor(alias, names, remap, invalid, missing) {
   const bad = new Set(invalid || [])
   const tips = []
   const unknown = []
-  // 名字为空、桥没开这类占位符不是名字本身，单独说一句就够
+  // 名字为空是闸门给的占位符，不是名字本身，单独说一句就够
   let nameless = false
   for (const n of names) {
     if (!n) {
@@ -565,7 +570,7 @@ function hintfor(alias, names, remap, invalid, missing) {
     }
     // 闸门拦下的名字在 tools 列表里根本不存在，别去猜它想调什么，直接让它照抄
     if (bad.has(n)) {
-      if (n === '（无名）' || n === '（桥未启用）') {
+      if (n === '（无名）') {
         nameless = true
         continue
       }
@@ -617,11 +622,10 @@ async function streamchat(res, t, open, model, includeusage) {
     }))
   }
 
-  // 工具桥和抑制都要求先攒齐 tool_calls，不能边收边吐
+  // 抑制要求先攒齐 tool_calls，不能边收边吐
   // 攒完再判断：被吞掉的调用当没发生过，重新问一次，让模型自己把这条路封死
   let outcome = null
-  let attempt = 0
-  let forced = false
+  const box = { attempt: 0, forced: false }
   let usage = null
   let finish = null
   let sawtool = false
@@ -629,7 +633,7 @@ async function streamchat(res, t, open, model, includeusage) {
   let sentrole = false
 
   while (true) {
-    // 每一轮都现取：抑制模式下这几个值可能被重问逻辑改写
+    // 抑制开关决定这一轮攒不攒 tool_calls，每轮重新读，重问时可能已经变了
     const mute = t.mute
     const alias = t.alias
     // 抑制开着时要攒齐 tool_calls 才能吞
@@ -746,59 +750,28 @@ async function streamchat(res, t, open, model, includeusage) {
       throw err
     }
 
-    let calls = []
-    let dropped = 0
-    let names = []
-    let invalid = []
-    let missing = []
-    if (held.size) {
-      calls = [...held.keys()].sort((a, b) => a - b).map((i) => held.get(i))
-      for (const c of calls) if (!c.id) c.id = callid()
-      // 先按上游名字抑制，再还原改名，否则客户端的 c_read 会被还原成 read 而误杀
-      const unwrapped = unwrapcalls(calls)
-      const gated = gatecalls(unwrapped.calls, t.allow)
-      const raw = mutecalls(gated.calls, t.mute, t.remap)
-      // 参数闸门排在抑制之后：被抑制的模板工具该报不可用，不该报缺参数
-      const arged = argcalls(raw.calls, t.need)
-      calls = unalias(arged.calls, t.alias)
-      dropped = unwrapped.dropped + gated.dropped + raw.dropped + arged.dropped
-      names = [...unwrapped.names, ...gated.names, ...raw.names, ...arged.names]
-      invalid = badnames(unwrapped, gated)
-      missing = [...(unwrapped.argless || []), ...(arged.missing || [])]
-    }
+    // 攒齐的调用按到达顺序排好，缺 id 的补一个，客户端要靠它配对结果
+    const held0 = [...held.keys()].sort((a, b) => a - b).map((i) => held.get(i))
+    for (const c of held0) if (!c.id) c.id = callid()
+    let picked = held0.length ? gating(t, held0) : { calls: [], dropped: 0, names: [], invalid: [], missing: [] }
     if (latebad.length) {
-      dropped += latebad.length
-      names = [...names, ...latebad]
-      invalid = [...invalid, ...latebad]
+      picked.dropped += latebad.length
+      picked.names = [...picked.names, ...latebad]
+      picked.invalid = [...picked.invalid, ...latebad]
     }
     // 名字从头到尾没到，这轮就当没调过，让它重来
     for (const buf of early.values()) {
       if (!buf.id && !buf.args) continue
-      dropped++
-      names.push('')
+      picked.dropped++
+      picked.names.push('')
     }
 
-    // 撞到不存在的工具就当成没发生过，重新问一次，语气一轮比一轮重
-    // 但如果这一轮已经吐过正文，重问会重复输出，只能就地吞掉收尾
-    if (dropped > 0 && !said) {
-      if (attempt < maxtries) {
-        attempt++
-        log.info(`工具抑制：吞掉 ${dropped} 个调用（${names.join(',')}），第 ${attempt} 次重申`)
-        t.msgs = [...t.msgs, { role: 'system', content: mutepush(attempt, hintfor(alias, names, t.remap, invalid, missing), missing && missing.length) }]
-        continue
-      }
-      if (!forced) {
-        forced = true
-        forcelast(t)
-        log.info('工具抑制：重问用尽，改成禁工具再问一次')
-        continue
-      }
-    }
+    if (reask(t, box, picked, said)) continue
 
     usage = usage0
     finish = finish0
     sawtool = sawtool0
-    outcome = { calls, dropped }
+    outcome = picked
     break
   }
   outcome.calls.forEach((c, i) => {
@@ -931,7 +904,7 @@ async function streamtext(res, up, model, includeusage) {
 
 // ---- Responses API
 
-// 请求先压成 chat 那一套，网关、改名、抑制、工具桥全部复用，这里只管两头的形状
+// 请求先压成 chat 那一套，网关、改名、抑制全部复用，这里只管两头的形状
 
 function respparts(content) {
   if (typeof content === 'string') return content
@@ -1209,8 +1182,7 @@ async function responses(req, res) {
   // 非流式跟 chat 一条路：模板工具被吞光又没正文时重问一次
   let r = null
   let picked = null
-  let attempt = 0
-  let forced = false
+  const box = { attempt: 0, forced: false }
   while (true) {
     let up
     try {
@@ -1220,28 +1192,8 @@ async function responses(req, res) {
       throw err
     }
     r = await collect(up)
-    const unwrapped = unwrapcalls(r.toolcalls)
-    const gated = gatecalls(unwrapped.calls, t.allow)
-    const raw = mutecalls(gated.calls, t.mute, t.remap)
-    // 参数闸门排在抑制之后：被抑制的模板工具该报不可用，不该报缺参数
-    const arged = argcalls(raw.calls, t.need)
-    const dropped = unwrapped.dropped + gated.dropped + raw.dropped + arged.dropped
-    const names = [...unwrapped.names, ...gated.names, ...raw.names, ...arged.names]
-    picked = { calls: unalias(arged.calls, t.alias), dropped, names, invalid: badnames(unwrapped, gated), missing: [...(unwrapped.argless || []), ...(arged.missing || [])] }
-    if (picked.dropped > 0 && !picked.calls.length && !r.text) {
-      if (attempt < maxtries) {
-        attempt++
-        log.info(`工具抑制：吞掉 ${picked.dropped} 个调用（${picked.names.join(',')}），第 ${attempt} 次重申`)
-        t.msgs = [...t.msgs, { role: 'system', content: mutepush(attempt, hintfor(t.alias, picked.names, t.remap, picked.invalid, picked.missing), picked.missing && picked.missing.length) }]
-        continue
-      }
-      if (!forced) {
-        forced = true
-        forcelast(t)
-        log.info('工具抑制：重问用尽，改成禁工具再问一次')
-        continue
-      }
-    }
+    picked = gating(t, r.toolcalls)
+    if (reask(t, box, picked, Boolean(r.text))) continue
     break
   }
 
@@ -1263,8 +1215,7 @@ async function streamresponse(res, t, open, env) {
   }
 
   let opened = false
-  let attempt = 0
-  let forced = false
+  const box = { attempt: 0, forced: false }
   let usage = null
   let said = false
   let msgid = ''
@@ -1272,7 +1223,7 @@ async function streamresponse(res, t, open, env) {
   let msgopen = false
   let outcome = null
 
-  // 正文边收边吐；工具调用要先攒齐，抑制和工具桥都得看完整名字
+  // 正文边收边吐；工具调用要先攒齐，抑制得看完整名字
   const openmsg = (index) => {
     msgid = respid('msg_')
     msgopen = true
@@ -1297,7 +1248,7 @@ async function streamresponse(res, t, open, env) {
   }
 
   while (true) {
-    // 每轮现取，降级成桥后这几个值会换
+    // 每轮重新 open：重问会把提示追加进 msgs，上一轮的请求体已经过期
     let up
     try {
       up = await open()
@@ -1323,7 +1274,6 @@ async function streamresponse(res, t, open, env) {
 
     const held = new Map()
     let usage0 = null
-    let sawtool = false
     said = false
 
     try {
@@ -1353,7 +1303,6 @@ async function streamresponse(res, t, open, env) {
               if (fn.name) slot.function.name = fn.name
               if (fn.arguments) slot.function.arguments += fn.arguments
             }
-            sawtool = true
           }
         }
       }
@@ -1362,44 +1311,15 @@ async function streamresponse(res, t, open, env) {
       throw err
     }
 
-    let calls = []
-    let dropped = 0
-    let names = []
-    let invalid = []
-    let missing = []
-    if (held.size) {
-      calls = [...held.keys()].sort((a, b) => a - b).map((i) => held.get(i))
-      for (const call of calls) if (!call.id) call.id = callid()
-      const unwrapped = unwrapcalls(calls)
-      const gated = gatecalls(unwrapped.calls, t.allow)
-      const raw = mutecalls(gated.calls, t.mute, t.remap)
-      // 参数闸门排在抑制之后：被抑制的模板工具该报不可用，不该报缺参数
-      const arged = argcalls(raw.calls, t.need)
-      calls = unalias(arged.calls, t.alias)
-      dropped = unwrapped.dropped + gated.dropped + raw.dropped + arged.dropped
-      names = [...unwrapped.names, ...gated.names, ...raw.names, ...arged.names]
-      invalid = badnames(unwrapped, gated)
-      missing = [...(unwrapped.argless || []), ...(arged.missing || [])]
-    }
+    // 攒齐的调用按到达顺序排好，缺 id 的补一个，客户端要靠它配对结果
+    const held0 = [...held.keys()].sort((a, b) => a - b).map((i) => held.get(i))
+    for (const c of held0) if (!c.id) c.id = callid()
+    const picked = held0.length ? gating(t, held0) : { calls: [], dropped: 0, names: [], invalid: [], missing: [] }
 
-    // 这一轮还没吐正文才能整轮重问，吐过了就只能就地收尾
-    if (dropped > 0 && !said) {
-      if (attempt < maxtries) {
-        attempt++
-        log.info(`工具抑制：吞掉 ${dropped} 个调用（${names.join(',')}），第 ${attempt} 次重申`)
-        t.msgs = [...t.msgs, { role: 'system', content: mutepush(attempt, hintfor(alias, names, t.remap, invalid, missing), missing && missing.length) }]
-        continue
-      }
-      if (!forced) {
-        forced = true
-        forcelast(t)
-        log.info('工具抑制：重问用尽，改成禁工具再问一次')
-        continue
-      }
-    }
+    if (reask(t, box, picked, said)) continue
 
     usage = usage0
-    outcome = { calls, dropped, sawtool }
+    outcome = picked
     break
   }
 

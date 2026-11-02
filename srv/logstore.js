@@ -4,6 +4,7 @@
 import { SQL } from 'bun'
 import { ensuremysql } from './mysqlboot.js'
 import { dbconf } from './paths.js'
+import { daykey } from './daykey.js'
 
 let sql = null
 // 连不上不永久停用，冷却一会儿再试，库被重新拉起来后能自己恢复
@@ -17,12 +18,6 @@ let inflight = false
 
 const batchmax = 50
 const delayms = 200
-
-function dayof(at) {
-  const d = new Date(at)
-  const pad = (n) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-}
 
 async function connect() {
   // 连接参数以设置为准，老的 mysql.json 只在设置没填时兜底
@@ -127,7 +122,7 @@ async function flush() {
     if (!rows.length) return
     // 一条多值 INSERT 落一整批，避免每条日志一次往返
     const ph = rows.map(() => '(?, ?, ?, ?)').join(',')
-    const args = rows.flatMap((it) => [it.at, dayof(it.at), it.level, String(it.msg)])
+    const args = rows.flatMap((it) => [it.at, daykey(it.at), it.level, String(it.msg)])
     await db.unsafe(`INSERT INTO logs (at, day, level, msg) VALUES ${ph}`, args)
   } catch (err) {
     // 写失败把批次塞回队头，下一轮重试，最多攒到 batchmax*10 条
@@ -181,7 +176,7 @@ export async function flushnow() {
 export async function query(opts = {}) {
   const db = await init()
   if (!db) throw new Error('日志库未连接')
-  const day = opts.day || dayof(Date.now())
+  const day = opts.day || daykey(Date.now())
   const level = String(opts.level || '').trim()
   const q = String(opts.q || '').trim()
   const limit = Math.max(1, Math.min(2000, Number(opts.limit) || 500))
@@ -220,7 +215,7 @@ export async function days(limit = 60) {
     [Math.max(1, Math.min(365, Number(limit) || 60))],
   )
   return rows.map((r) => ({
-    day: r.day instanceof Date ? dayof(r.day.getTime()) : String(r.day).slice(0, 10),
+    day: r.day instanceof Date ? daykey(r.day.getTime()) : String(r.day).slice(0, 10),
     n: Number(r.n) || 0,
   }))
 }

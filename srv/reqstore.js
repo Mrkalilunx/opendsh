@@ -2,6 +2,7 @@
 // 和运行日志共用同一个 MySQL 连接与库，表分开
 
 import { init } from './logstore.js'
+import { daykey } from './daykey.js'
 import { normusage } from './upstream.js'
 
 // 单段正文最多留这么多字节，流式响应会非常大，只留开头够排查
@@ -13,13 +14,6 @@ const retryms = 30000
 
 const subs = new Set()
 
-const pad = (n) => String(n).padStart(2, '0')
-
-function dayof(at) {
-  const d = new Date(at)
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-}
-
 function cut(text, size = maxbody) {
   const s = String(text || '')
   if (Buffer.byteLength(s, 'utf8') <= size) return s
@@ -27,16 +21,6 @@ function cut(text, size = maxbody) {
   const buf = Buffer.from(s, 'utf8').subarray(0, size)
   return new TextDecoder('utf-8').decode(buf).replace(/\uFFFD+$/, '')
 }
-
-// 来源按 UA 归类，客户端 UA 比路径更能说明是谁在打
-export const sources = [
-  { id: 'opencode', label: 'opencode' },
-  { id: 'codex', label: 'codex' },
-  { id: 'astrbot', label: 'astrbot' },
-  { id: 'web', label: '网页' },
-  { id: 'script', label: '脚本' },
-  { id: 'other', label: '其他' },
-]
 
 export function sourceof(reqhead) {
   let ua = ''
@@ -178,7 +162,7 @@ export async function emit(rec) {
       `INSERT INTO requests (at, day, method, path, source, model, status, ms, ptok, ctok, ttok, cachetok, reasontok, reqhead, reqbody, respbody)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        row.at, dayof(row.at), row.method, row.path, row.source, row.model, row.status, row.ms,
+        row.at, daykey(row.at), row.method, row.path, row.source, row.model, row.status, row.ms,
         row.ptok, row.ctok, row.ttok, row.cachetok, row.reasontok,
         row.reqhead, row.reqbody, row.respbody,
       ],
@@ -214,7 +198,7 @@ export async function emit(rec) {
 export async function query(opts = {}) {
   const conn = await db()
   if (!conn) throw new Error('日志库未连接')
-  const day = opts.day || dayof(Date.now())
+  const day = opts.day || daykey(Date.now())
   const limit = Math.max(1, Math.min(1000, Number(opts.limit) || 200))
   const offset = Math.max(0, Number(opts.offset) || 0)
   // 来源筛选：all 或不传表示不过滤
@@ -223,8 +207,7 @@ export async function query(opts = {}) {
   const args = src ? [day, src] : [day]
 
   const rows = await conn.unsafe(
-    `SELECT id, at, method, path, source, model, status, ms,
-            CHAR_LENGTH(reqbody) AS reqlen, CHAR_LENGTH(respbody) AS resplen
+    `SELECT id, at, method, path, source, model, status, ms
        FROM requests ${where} ORDER BY at DESC, id DESC LIMIT ? OFFSET ?`,
     [...args, limit, offset],
   )
@@ -254,8 +237,6 @@ export async function query(opts = {}) {
       model: r.model,
       status: Number(r.status),
       ms: Number(r.ms),
-      reqlen: Number(r.reqlen) || 0,
-      resplen: Number(r.resplen) || 0,
     })),
   }
 }
@@ -269,7 +250,7 @@ export async function days(limit = 365) {
     [Math.max(1, Math.min(365, Number(limit) || 365))],
   )
   return rows.map((r) => ({
-    day: r.day instanceof Date ? dayof(r.day.getTime()) : String(r.day).slice(0, 10),
+    day: r.day instanceof Date ? daykey(r.day.getTime()) : String(r.day).slice(0, 10),
     n: Number(r.n) || 0,
   }))
 }
@@ -301,7 +282,7 @@ export async function detail(id) {
   return {
     id: Number(r.id),
     at: Number(r.at),
-    day: r.day instanceof Date ? dayof(r.day.getTime()) : String(r.day).slice(0, 10),
+    day: r.day instanceof Date ? daykey(r.day.getTime()) : String(r.day).slice(0, 10),
     method: r.method,
     path: r.path,
     source: r.source || 'other',

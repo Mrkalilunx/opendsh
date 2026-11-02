@@ -229,18 +229,47 @@ async function readbody(req) {
   return Buffer.concat(parts).toString('utf8')
 }
 
+// 只收 POST 的接口共用：方法不对就地回 405，调用方看到 false 直接 return
+function mustpost(req, res) {
+  if (req.method === 'POST') return true
+  text(res, 405, types['.txt'], '405 method not allowed')
+  return false
+}
+
+// GET/POST 都收的路由：读写同路径，比如 UA 自测和自检
+function mustgetpost(req, res) {
+  if (req.method === 'GET' || req.method === 'POST') return true
+  text(res, 405, types['.txt'], '405 method not allowed')
+  return false
+}
+
+// 只读路由，写方法一律回 405
+function mustget(req, res) {
+  if (req.method === 'GET') return true
+  text(res, 405, types['.txt'], '405 method not allowed')
+  return false
+}
+
+// 读 JSON 请求体，不合法就回 400 并返回 undefined
+// 用 undefined 当哨兵而不是 null：字面量 null 也是解析成功的结果，不能和失败混为一谈
+async function readjson(req, res) {
+  try {
+    return JSON.parse(await readbody(req))
+  } catch {
+    text(res, 400, types['.json'], JSON.stringify({ error: '请求体不是合法 JSON' }))
+    return undefined
+  }
+}
+
 // UA 自测：不带参数就把候选写法挨个试一遍，带 ua 就只验这一条
 // 门禁只在 chat 接口上，所以这里每次都真的发一次最小请求
 async function uaroute(req, res) {
-  if (req.method !== 'GET' && req.method !== 'POST') return text(res, 405, types['.txt'], '405 method not allowed')
+  if (!mustgetpost(req, res)) return
   let want = ''
   if (req.method === 'POST') {
-    try {
-      const doc = JSON.parse(await readbody(req))
-      want = String((doc && doc.ua) || '').trim()
-    } catch {
-      return text(res, 400, types['.json'], JSON.stringify({ error: '请求体不是合法 JSON' }))
-    }
+    const doc = await readjson(req, res)
+    if (doc === undefined) return
+    want = String((doc && doc.ua) || '').trim()
   } else {
     want = String(new URL(req.url, 'http://localhost').searchParams.get('ua') || '').trim()
   }
@@ -268,14 +297,10 @@ async function settingsroute(req, res) {
       paths: await pathinfo(),
     }))
   }
-  if (req.method !== 'POST') return text(res, 405, types['.txt'], '405 method not allowed')
+  if (!mustpost(req, res)) return
 
-  let doc
-  try {
-    doc = JSON.parse(await readbody(req))
-  } catch {
-    return text(res, 400, types['.json'], JSON.stringify({ error: '请求体不是合法 JSON' }))
-  }
+  const doc = await readjson(req, res)
+  if (doc === undefined) return
 
   try {
     const reset = Boolean(doc && doc.reset)
@@ -318,7 +343,7 @@ async function settingsroute(req, res) {
 
 // 用量页：按天、按模型、按来源汇总 token
 async function usageroute(req, res, url) {
-  if (req.method !== 'GET') return text(res, 405, types['.txt'], '405 method not allowed')
+  if (!mustget(req, res)) return
   try {
     const doc = await usagestat.summary({ days: url.searchParams.get('days') })
     return text(res, 200, types['.json'], JSON.stringify(doc))
@@ -453,7 +478,7 @@ async function sysroute(req, res) {
 
 // 调试页的服务自检：一次把服务、库、上游、模板、状态目录全探一遍
 async function checkroute(req, res) {
-  if (req.method !== 'GET' && req.method !== 'POST') return text(res, 405, types['.txt'], '405 method not allowed')
+  if (!mustgetpost(req, res)) return
   try {
     return text(res, 200, types['.json'], JSON.stringify(await selfcheck.run(port)))
   } catch (err) {
@@ -475,14 +500,10 @@ async function procroute(req, res, url) {
       return text(res, 404, types['.json'], JSON.stringify({ error: err.message }))
     }
   }
-  if (req.method !== 'POST') return text(res, 405, types['.txt'], '405 method not allowed')
+  if (!mustpost(req, res)) return
 
-  let doc
-  try {
-    doc = JSON.parse(await readbody(req))
-  } catch {
-    return text(res, 400, types['.json'], JSON.stringify({ error: '请求体不是合法 JSON' }))
-  }
+  const doc = await readjson(req, res)
+  if (doc === undefined) return
   try {
     const done = await procmon.kill(doc && doc.pid)
     log.info(`已结束进程 ${done.name} (${done.pid})，${done.how}`)
@@ -597,19 +618,12 @@ function logstream(req, res) {
 
 async function sessionsroute(req, res) {
   if (req.method === 'GET') {
-    return text(res, 200, types['.json'], JSON.stringify({
-      ...sessionsnapshot(),
-      poolsize: getsettings().sessionpool,
-    }))
+    return text(res, 200, types['.json'], JSON.stringify(sessionsnapshot()))
   }
-  if (req.method !== 'POST') return text(res, 405, types['.txt'], '405 method not allowed')
+  if (!mustpost(req, res)) return
 
-  let doc
-  try {
-    doc = JSON.parse(await readbody(req))
-  } catch {
-    return text(res, 400, types['.json'], JSON.stringify({ error: '请求体不是合法 JSON' }))
-  }
+  const doc = await readjson(req, res)
+  if (doc === undefined) return
 
   try {
     if (doc && doc.action === 'append') {
@@ -651,14 +665,10 @@ async function keysroute(req, res) {
       auth: getsettings().keyauth,
     }))
   }
-  if (req.method !== 'POST') return text(res, 405, types['.txt'], '405 method not allowed')
+  if (!mustpost(req, res)) return
 
-  let doc
-  try {
-    doc = JSON.parse(await readbody(req))
-  } catch {
-    return text(res, 400, types['.json'], JSON.stringify({ error: '请求体不是合法 JSON' }))
-  }
+  const doc = await readjson(req, res)
+  if (doc === undefined) return
 
   try {
     if (doc && doc.action === 'create') {
@@ -681,14 +691,10 @@ async function personasroute(req, res) {
   if (req.method === 'GET') {
     return text(res, 200, types['.json'], JSON.stringify(listpersonas()))
   }
-  if (req.method !== 'POST') return text(res, 405, types['.txt'], '405 method not allowed')
+  if (!mustpost(req, res)) return
 
-  let doc
-  try {
-    doc = JSON.parse(await readbody(req))
-  } catch {
-    return text(res, 400, types['.json'], JSON.stringify({ error: '请求体不是合法 JSON' }))
-  }
+  const doc = await readjson(req, res)
+  if (doc === undefined) return
 
   const action = String((doc && doc.action) || '')
   try {
@@ -720,14 +726,10 @@ async function maproute(req, res) {
   if (req.method === 'GET') {
     return text(res, 200, types['.json'], JSON.stringify(listmap()))
   }
-  if (req.method !== 'POST') return text(res, 405, types['.txt'], '405 method not allowed')
+  if (!mustpost(req, res)) return
 
-  let doc
-  try {
-    doc = JSON.parse(await readbody(req))
-  } catch {
-    return text(res, 400, types['.json'], JSON.stringify({ error: '请求体不是合法 JSON' }))
-  }
+  const doc = await readjson(req, res)
+  if (doc === undefined) return
 
   const action = String((doc && doc.action) || '')
   try {
