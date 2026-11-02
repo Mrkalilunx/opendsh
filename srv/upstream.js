@@ -23,6 +23,12 @@ export const defaultuseragent = 'opencode/latest/2.0.22/cli'
 let fallbackua = ''
 let defaultbad = false
 let autoing = null
+// 上次探测的时间与结论：真额度用完时探测必然全灭，不能每来一次 429 就整轮重探
+// 一轮探测就是 6 次真实请求，额度紧张时能把一次调用放大成几十次
+let probeat = 0
+let probefail = 0
+// 探测失败的冷却时间：一次 429 风暴里最多探一轮，过后再允许重探
+const probecool = 60000
 
 // 当前该用的 UA：设置填了优先，其次默认值，最后才是探测到的替代写法
 // 这里绝不能顺手去探测，探测本身要发一次真请求，会打乱调用方的重试节奏
@@ -37,13 +43,19 @@ export function useragent() {
 // 默认值已经确认不通时不再重复探，免得真额度用完时白白消耗请求
 export function kickautouseragent() {
   if (autoing || defaultbad) return autoing
+  // 刚探过一轮且全灭，冷却期内不再探：额度真的用完时探多少次都是同样结果
+  if (probefail > 0 && Date.now() - probeat < probecool) return null
   autoing = (async () => {
     try {
       const found = await finduseragent()
+      probeat = Date.now()
       if (!found.ok) {
-        log.warn('UA 自动探测：候选写法全部不通，继续用默认值')
+        // 全灭只说明现在过不去，未必是 UA 的锅，冷却后允许再探
+        probefail += 1
+        log.warn(`UA 自动探测：候选写法全部不通，继续用默认值，${probecool / 1000} 秒内不再重探`)
         return
       }
+      probefail = 0
       if (found.ua === defaultuseragent) {
         log.info('UA 自动探测：默认写法可用')
         return
@@ -52,6 +64,8 @@ export function kickautouseragent() {
       defaultbad = true
       log.info(`UA 自动探测：默认写法不通，改用 ${fallbackua}`)
     } catch (err) {
+      probeat = Date.now()
+      probefail += 1
       log.warn(`UA 自动探测失败：${(err && err.message) || err}`)
     } finally {
       autoing = null
@@ -125,17 +139,39 @@ function headers(sid) {
   }
 }
 
+// 免费额度 429 的专用重试：这类 429 换个出口或等一会儿就能恢复，值得多试几次
+// 次数和间隔单列，不跟着 retries 走：retries=0 时也要有重试机会
+const freeretries = 10
+const freeretryms = 5000
+
+// 隔一段时间再试，等待期间客户端断开就提前返回，不空等满整段
+function sleep(ms, signal) {
+  return new Promise((resolve) => {
+    if (signal && signal.aborted) return resolve()
+    const done = () => {
+      clearTimeout(timer)
+      if (signal) signal.removeEventListener('abort', done)
+      resolve()
+    }
+    const timer = setTimeout(done, ms)
+    if (signal) signal.addEventListener('abort', done, { once: true })
+  })
+}
+
 export async function openstream(body, signal) {
   let last = null
   let reset = false
   const max = attempts()
-  // 额度 429 换 session 重试不占 retries 名额：retries=0 且没有出口池时
-  // attempts() 只有 1，重建了 session 池却没机会再试，白白把 429 抛给客户端
-  // 所以命中免费额度 429 后单独再给一次机会，只给一次，避免来回撞
-  let spare = true
+  // 免费额度 429 自己计数，不走 retries 名额，用尽才把最后一次的错误抛出去
+  let freetry = 0
+  // 普通重试额度用完就停，免费额度的重试不占它，所以单独放行
+  let plain = 0
   const settings = getsettings()
 
-  for (let i = 0; i < max; i += 1) {
+  // 用 while 而不是 for：免费额度那次重试要原地再来一遍，不消耗普通重试次数
+  while (plain < max) {
+    // 客户端已经断开就别再发起下一轮了
+    if (signal && signal.aborted) break
     const sid = nextsid()
     const proxy = settings.proxypool ? nextproxy() : null
     const ctrl = new AbortController()
@@ -160,6 +196,8 @@ export async function openstream(body, signal) {
       clearTimeout(timer)
       last = new APIError(0, `请求失败: ${err.message}`)
       log.warn(`上游连接失败：${err.message}`)
+      // 连不上算普通重试，避免一直重连
+      plain += 1
       continue
     }
     clearTimeout(timer)
@@ -179,17 +217,24 @@ export async function openstream(body, signal) {
       resetpool()
       reset = true
     }
-    // 池子重置后补一次机会，否则 retries=0 时循环已经到头
-    if (i === max - 1 && spare) {
-      spare = false
-      i -= 1
+    // 免费额度用尽：换新 session 池，等一会儿再试，最多 freeretries 次
+    // 定时等间隔而不是立刻连打，否则只是把同一批出口再撞一遍
+    if (freetry < freeretries) {
+      freetry += 1
+      log.info(`免费额度 429，第 ${freetry}/${freeretries} 次重试，${freeretryms / 1000} 秒后再发`)
+      await sleep(freeretryms, signal)
+      // 这一轮不算普通重试，原地再来一遍
+      continue
     }
+    // 免费额度重试用尽，这个 429 已经没有可恢复的余地，直接抛出去
+    plain = max
   }
 
   if (last && String(last.body).includes('FreeUsageLimitError')) {
+    const tried = `已重试 ${freetry} 次、每次间隔 ${freeretryms / 1000} 秒，仍到限额`
     last.hint = attempts() > 1
-      ? `代理池 ${attempts()} 个出口都到限额了：换一批新代理，或开关移动数据换 IP 后重试`
-      : '免费额度已用尽：开关一次移动数据或飞行模式换出口 IP 后重试，session 池已自动换新'
+      ? `代理池 ${attempts()} 个出口都到限额了：${tried}，换一批新代理或开关移动数据换 IP 后重试`
+      : `免费额度已用尽：${tried}，session 池已自动换新，开关一次移动数据或飞行模式换出口 IP 后重试`
   }
   throw last || new APIError(0, '没有可用的出口')
 }
