@@ -26,8 +26,6 @@ export const spec = {
   temp: { type: 'number', min: -1, max: 2, step: 0.1 },
   maxtok: { type: 'number', min: 0, max: 32000, step: 128 },
   tools: { type: 'boolean' },
-  toolbridge: { type: 'boolean' },
-  toolbudget: { type: 'number', min: 0, max: 512, step: 1 },
   useragent: { type: 'string', max: 200, optional: true },
   rawentry: { type: 'boolean' },
   responses: { type: 'boolean' },
@@ -55,10 +53,6 @@ const fallback = {
   temp: -1,
   maxtok: 0,
   tools: true,
-  toolbridge: true,
-  // 0 表示不限：实测上游连 400+ 个工具都正常收，15 只是当年的猜测值
-  // 真要撞上数量限制，把这里填成上限值，超出部分自动走工具桥兜底
-  toolbudget: 0,
   // 空表示用代码里的默认值：opencode/<版本>/<客户端>，不带 latest 段
   // 上游按这个串认客户端，改坏了会直接 429，设置页可以一键试出能用的写法
   useragent: '',

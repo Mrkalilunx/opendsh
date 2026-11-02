@@ -10,7 +10,6 @@ const fields = {
   modelcache: 'setmodelcache',
   temp: 'settemp',
   maxtok: 'setmaxtok',
-  toolbudget: 'setbudget',
   useragent: 'setua',
   statedir: 'setstatedir',
   dbhost: 'setdbhost',
@@ -46,9 +45,6 @@ function syncswitch() {
   const tbox = el('settools')
   const tlabel = el('settoolstext')
   if (tbox && tlabel) tlabel.textContent = tbox.checked ? '启用' : '关闭'
-  const bbox = el('setbridge')
-  const blabel = el('setbridgetext')
-  if (bbox && blabel) blabel.textContent = bbox.checked ? '启用' : '关闭'
   const rbox = el('setresp')
   const rlabel = el('setresptext')
   if (rbox && rlabel) rlabel.textContent = rbox.checked ? '启用' : '关闭'
@@ -87,8 +83,6 @@ function fill(settings) {
   if (box) box.checked = Boolean(settings.proxypool)
   const tbox = el('settools')
   if (tbox) tbox.checked = Boolean(settings.tools)
-  const bbox = el('setbridge')
-  if (bbox) bbox.checked = Boolean(settings.toolbridge)
   const rbox = el('setresp')
   if (rbox) rbox.checked = Boolean(settings.responses)
   const wbox = el('setraw')
@@ -113,7 +107,6 @@ function collect() {
     modelcache: num('setmodelcache'),
     temp: num('settemp'),
     maxtok: num('setmaxtok'),
-    toolbudget: num('setbudget'),
     useragent: text('setua'),
     statedir: text('setstatedir'),
     dbhost: text('setdbhost'),
@@ -123,7 +116,6 @@ function collect() {
     dbdatadir: text('setdatadir'),
     proxypool: el('setproxy').checked,
     tools: el('settools').checked,
-    toolbridge: el('setbridge').checked,
     rawentry: el('setraw').checked,
     keyauth: el('keyauth').checked,
     responses: el('setresp').checked,
@@ -274,7 +266,6 @@ export function mountsettings() {
 
   el('setproxy')?.addEventListener('change', syncswitch)
   el('settools')?.addEventListener('change', syncswitch)
-  el('setbridge')?.addEventListener('change', syncswitch)
   el('setraw')?.addEventListener('change', syncswitch)
   el('keyauth')?.addEventListener('change', syncskey)
   // Responses 开关搬到 Codex 那栏，不在表单里，得单独接一条自动保存

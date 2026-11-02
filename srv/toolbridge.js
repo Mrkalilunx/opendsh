@@ -1,8 +1,5 @@
-// 工具桥：上游对 tools 数量有上限，模板那 12 个又不能动
-// 所以把超出的客户端工具收成一段文字清单，再挂一个转发工具去调它们
+// 工具改名与出站闸门：客户端工具加前缀发上去，调用回来再还原
 // 对客户端来说完全透明：它照样收到自己那套 OpenAI tool_calls
-
-const bridgename = '__call_tool'
 
 // 客户端工具一律加 c_ 前缀发上去，规则固定，不随冲突情况变
 // 这样同一会话里工具名永远一致，不会这一轮叫 read、下一轮叫 c_read
@@ -10,16 +7,13 @@ const bridgename = '__call_tool'
 const sameprefix = 'c_'
 
 // 给模型的固定命名约定，每轮都说同一句，不逐条点名那些模板工具
-export function namesnote(prefixed, bridged, muted) {
+export function namesnote(prefixed, muted) {
   const lines = []
   if (prefixed) {
     lines.push(`工具列表里以 ${sameprefix} 开头的那些是调用方的工具，调用时按列表里的完整名字写，不要省略前缀。`)
   }
   if (Array.isArray(muted) && muted.length) {
     lines.push(`模板里的 ${muted.join('、')} 这批名字在本轮不算可用工具；能对上调用方工具的会自动改派，对不上的会被丢掉，请优先直接用列表里带前缀的工具。`)
-  }
-  if (bridged) {
-    lines.push(`清单里没列进工具列表的，统一通过 ${bridgename} 调用，name 填清单里给的名字。`)
   }
   return lines.join('\n')
 }
@@ -67,7 +61,6 @@ export function aliasnames(list, taken) {
   const map = new Map()
   const out = []
   const used = new Set(taken)
-  used.add(bridgename)
   const esc = escapepair(list)
   for (const t of list) {
     const fn = t.function || {}
@@ -95,79 +88,6 @@ export function unalias(calls, alias) {
   })
 }
 
-// 描述只留第一句，参数只留顶层键，够模型判断就行，别把上下文吃光
-function brief(text, max) {
-  const flat = String(text || '').replace(/\s+/g, ' ').trim()
-  if (flat.length <= max) return flat
-  return flat.slice(0, max - 1) + '…'
-}
-
-function paramsbrief(fn) {
-  const props = (fn.parameters && fn.parameters.properties) || {}
-  const keys = Object.keys(props)
-  if (!keys.length) return ''
-  return keys.join(', ')
-}
-
-function catalog(extra) {
-  const lines = ['你现在还能调用下面这些工具，但不在 tools 列表里，要经由 ' + bridgename + ' 转发。']
-  lines.push(`调用方式：${bridgename}({ "name": "工具名", "arguments": { ...参数 } })`)
-  lines.push('一次只能调一个，参数按下面列出的键给，不确定就别调。')
-  lines.push('')
-  for (const t of extra) {
-    const fn = t.function || {}
-    const args = paramsbrief(fn)
-    lines.push(`- ${fn.name}: ${brief(fn.description, 120)}${args ? `（参数：${args}）` : ''}`)
-  }
-  return lines.join('\n')
-}
-
-function bridge() {
-  return {
-    type: 'function',
-    function: {
-      name: bridgename,
-      description: '按名字调用清单里的工具，把工具名和参数原样传进来',
-      parameters: {
-        type: 'object',
-        properties: {
-          name: { type: 'string', description: '要调用的工具名，必须来自清单' },
-          arguments: { type: 'object', description: '这个工具的参数对象' },
-        },
-        required: ['name', 'arguments'],
-      },
-    },
-  }
-}
-
-// 返回要发上去的 tools、要追加的说明文字、以及桥的名字映射
-// budget 为 0 表示不限：工具全量直发，不装桥
-// 装得下就原样放行，装不下才启用桥
-export function plantools(clienttools, basecount, budget, enabled) {
-  const base = Math.max(0, Number(basecount) || 0)
-  const cap = Number(budget)
-  // 不限名额时给一个足够大的数，桥自然不启用
-  const limit = cap > 0 ? Math.max(base, cap) : Number.MAX_SAFE_INTEGER
-  const slots = Math.max(0, limit - base)
-  const list = Array.isArray(clienttools) ? clienttools.filter((t) => t && t.function && t.function.name) : []
-
-  if (!list.length) return { extra: [], note: '', map: new Map(), active: false }
-  if (!enabled || list.length <= slots) return { extra: list, note: '', map: new Map(), active: false }
-
-  const keep = Math.max(0, slots - 1)
-  const direct = list.slice(0, keep)
-  const rest = list.slice(keep)
-  const map = new Map()
-  for (const t of rest) map.set(t.function.name, t)
-
-  return {
-    extra: [...direct, bridge()],
-    note: catalog(rest),
-    map,
-    active: true,
-  }
-}
-
 function parseargs(raw) {
   if (raw && typeof raw === 'object') return raw
   try {
@@ -178,50 +98,11 @@ function parseargs(raw) {
   }
 }
 
-// 把桥调用拆回真正的工具名，参数原样序列化交给客户端
-// 名字不是清单里的字符串就直接丢掉，别把假名流出去
-// 拆出来的模板名不在这里特判：它和直接调模板工具走同一条路，交给 mutecalls 统一抑制
-export function unwrapcalls(calls, map, allow) {
+// 出站调用原样透传：改名已经在 aliasnames 那一层做完了
+// 桥拆掉之后这里不再有需要摊平的东西，保留函数是为了调用点不用改结构
+export function unwrapcalls(calls) {
   if (!Array.isArray(calls)) return { calls: [], dropped: 0, names: [], argless: [] }
-  const out = []
-  const names = []
-  const argless = []
-  for (const call of calls) {
-    const name = call && call.function && call.function.name
-    if (name !== bridgename) {
-      out.push(call)
-      continue
-    }
-    if (!map || !map.size) {
-      // 桥没开却调了桥，名字对不上任何工具，丢掉重问
-      names.push('（桥未启用）')
-      continue
-    }
-    const args = parseargs(call.function.arguments)
-    // 模型偶尔把 name 写成对象，String() 会得到 [object Object]，这里只认字符串
-    const real = typeof args.name === 'string' ? args.name : ''
-    // 名字是桥内工具就拆开，是直接发上去的工具就放行，其余丢掉重问
-    const known = map.has(real) || (allow && allow.has(real))
-    if (!known) {
-      names.push(real || '（无名）')
-      continue
-    }
-    // 参数可能是对象，也可能被模型再套一层字符串；两种都摊平成对象
-    // 摊不出来的直接判不合格，别把空参数发给客户端换一句 Missing key
-    const raw = args.arguments
-    const inner = typeof raw === 'string' ? parseargs(raw) : raw
-    if (!inner || typeof inner !== 'object' || Array.isArray(inner)) {
-      names.push(real)
-      argless.push({ name: real, missing: ['（整份参数）'] })
-      continue
-    }
-    out.push({
-      id: call.id,
-      type: 'function',
-      function: { name: real, arguments: JSON.stringify(inner) },
-    })
-  }
-  return { calls: out, dropped: names.length, names, argless }
+  return { calls, dropped: 0, names: [], argless: [] }
 }
 
 // 出站闸门之一：名字必须真在客户端那份 tools 里
@@ -288,10 +169,7 @@ export function missnote(missing) {
   return `${parts.join('；')}。参数键要照 tools 里的定义写。`
 }
 
-export { bridgename }
-
 // 每个工具名对应的必填参数键，出站闸门拿它核对参数有没有缺
-// 桥自己那个转发工具不查：它的参数在 unwrapcalls 里已经摊平过一遍
 export function needmap(lists) {
   const out = new Map()
   for (const list of lists) {
@@ -299,7 +177,7 @@ export function needmap(lists) {
     for (const t of list) {
       const fn = (t && t.function) || {}
       const name = fn.name
-      if (!name || name === bridgename) continue
+      if (!name) continue
       const params = fn.parameters || {}
       const keys = Array.isArray(params.required) ? params.required.filter((one) => typeof one === 'string') : []
       if (keys.length) out.set(name, keys)
@@ -460,28 +338,17 @@ export function mutepush(count, hint, argless) {
 }
 
 // 客户端回填历史时，assistant 消息里带的是真名
-// 上游那边这些名字要么不在 tools 列表里、要么和模板重名，都得先换回去
-export function rebridge(msgs, map, alias) {
+// 上游那边这些名字和模板重名，得先换回带前缀的写法
+export function rebridge(msgs, alias) {
   const back = new Map()
-  if (alias && alias.size) for (const [up, real] of alias) back.set(real, up)
-  if ((!map || !map.size) && !back.size) return msgs
+  if (!alias || !alias.size) return msgs
+  for (const [up, real] of alias) back.set(real, up)
   for (const m of msgs) {
     if (!m || m.role !== 'assistant' || !Array.isArray(m.tool_calls)) continue
     m.tool_calls = m.tool_calls.map((call) => {
       const fn = (call && call.function) || {}
-      const real = back.get(fn.name) || fn.name
-      if (map && map.has(real)) {
-        const args = parseargs(fn.arguments)
-        return {
-          ...call,
-          function: {
-            name: bridgename,
-            arguments: JSON.stringify({ name: real, arguments: args }),
-          },
-        }
-      }
       if (!back.has(fn.name)) return call
-      return { ...call, function: { ...fn, name: real } }
+      return { ...call, function: { ...fn, name: back.get(fn.name) } }
     })
   }
   return msgs

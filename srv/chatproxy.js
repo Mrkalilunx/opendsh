@@ -10,7 +10,7 @@ import * as log from './logbus.js'
 import * as reqlog from './reqstore.js'
 import { verifykey } from './apikey.js'
 import { listmap, resolvemodel } from './modelmap.js'
-import { plantools, unwrapcalls, gatecalls, argcalls, needmap, missnote, rebridge, mutecalls, mutepush, aliasnames, unalias, namesnote, buildremap } from './toolbridge.js'
+import { unwrapcalls, gatecalls, argcalls, needmap, missnote, rebridge, mutecalls, mutepush, aliasnames, unalias, namesnote, buildremap } from './toolbridge.js'
 
 // 撞到不存在的工具时最多重问几次，防止模型死磕
 const maxtries = 2
@@ -189,12 +189,7 @@ async function translate(req) {
     base,
     tplnames,
     clientlist,
-    // 名额默认 0，也就是不限：工具全量直发，桥只在真撞上限制时才启用
-    budget: Number(s.toolbudget) || 0,
-    bridgeon: Boolean(s.toolbridge),
     notes: [],
-    map: new Map(),
-    bridged: false,
     allow: new Set(),
     need: new Map(),
     ns: req.__ns instanceof Map ? req.__ns : new Map(),
@@ -203,59 +198,26 @@ async function translate(req) {
   return t
 }
 
-// 按名额重新排一次工具：装得下就全直发，装不下才把超出的折成桥
-// 上游真按数量拒绝时也走这里降级，所以必须能重复调用
-// budget 不传就用设置里的名额，0 表示不限
-function plan(t, budget) {
-  const cap = budget === undefined ? t.budget : budget
-  const bridge = plantools(t.clientlist, t.base.length, cap, t.bridgeon)
-  t.map = bridge.map
-  t.bridged = bridge.active
-  if (t.clientlist.length) t.params.tools = [...t.base, ...bridge.extra]
-  // 提示语跟着名额一起换，降级后要把旧提示撤掉，否则模型看到的是上一轮的清单
+// 客户端工具全量直发，不再按名额折叠
+function plan(t) {
+  if (t.clientlist.length) t.params.tools = [...t.base, ...t.clientlist]
   t.notes = []
-  if (bridge.note) t.notes.push(bridge.note)
   // 命名约定每轮都一样，避免同一会话里工具名忽然变
-  const naming = namesnote(t.alias.size > 0, bridge.active, [...t.mute])
+  const naming = namesnote(t.alias.size > 0, [...t.mute])
   if (naming) t.notes.push(naming)
   // 闸门看的是「拆桥前」的名字，也就是上游那一侧的写法：
-  // c_xxx 的直接工具、经桥转发后还原出来的真名、以及模板那 12 个
+  // c_xxx 的直接工具、以及模板那 12 个
   // 模板名字即使在抑制模式也先放行，交给 mutecalls 去吐提示，不在这里提前拦
-  t.allow = new Set([...t.alias.keys(), ...bridge.map.keys(), ...t.tplnames])
-  // 必填参数表按出站那一侧的名字算：改名后的 c_xxx、模板原名、桥里的直接工具
-  // 桥里被收走的那些本轮根本发不出去，只在拆桥后才出现，所以用改名前的清单补一份
-  t.need = needmap([t.base, bridge.extra, t.clientlist])
-  // 历史里的 tool_calls 也要跟着换成桥的形式，重复调用是幂等的
-  rebridge(t.msgs, bridge.map, t.alias)
-  return bridge.active
+  t.allow = new Set([...t.alias.keys(), ...t.tplnames])
+  // 必填参数表按出站那一侧的名字算：改名后的 c_xxx、模板原名
+  t.need = needmap([t.base, t.clientlist])
+  // 历史里的 tool_calls 也要跟着换成带前缀的形式，重复调用是幂等的
+  rebridge(t.msgs, t.alias)
 }
 
-// 提示语单独拼在消息前面，这样降级重新规划时能整段换掉，不用去 msgs 里抠
+// 提示语单独拼在消息前面，这样重问时能整段换掉，不用去 msgs 里抠
 function wire(t) {
   return [...t.notes.map((one) => ({ role: 'system', content: one })), ...t.msgs]
-}
-
-// 上游发的工具数，用来判断降级到底有没有把数量降下来
-function toolcount(t) {
-  return Array.isArray(t.params.tools) ? t.params.tools.length : t.base.length
-}
-
-// 上游会不会是因为工具太多才拒的：认不出原因就别乱降级
-function istoolcount(err) {
-  if (!(err instanceof APIError)) return false
-  if (![400, 413, 422].includes(err.status)) return false
-  const body = String(err.body || '')
-  return /tool/i.test(body) && /(too many|exceed|maximum|limit|最多|超出)/i.test(body)
-}
-
-// 降到最小名额：模板那 12 个加一个桥，客户端工具全收进桥，总数恒定 13
-// 已经是最小还失败，说明不是数量问题，别再来一次
-function replan(t) {
-  const before = toolcount(t)
-  const minimal = t.base.length + 1
-  if (!t.clientlist.length || before <= minimal) return false
-  plan(t, minimal)
-  return toolcount(t) < before
 }
 
 async function collect(res) {
@@ -498,22 +460,10 @@ async function chat(req, res) {
   req.on('close', () => ac.abort())
 
   // 每次重问都要拿最新的 t.msgs 重建请求体，抑制时会把提示追加进去
-  // 上游真按工具数量拒绝时，降级成工具桥再试一次；降过就只降一次，避免来回折腾
-  let fell = false
-  const open = async () => {
-    try {
-      return await openstream(await buildbody(wire(t), model, t.params), ac.signal)
-    } catch (err) {
-      if (fell || !istoolcount(err)) throw err
-      fell = true
-      if (!replan(t)) throw err
-      log.info(`上游嫌工具太多，降到 ${toolcount(t)} 个并改用工具桥重试`)
-      return openstream(await buildbody(wire(t), model, t.params), ac.signal)
-    }
-  }
+  const open = async () => openstream(await buildbody(wire(t), model, t.params), ac.signal)
 
   const includeusage = Boolean((body.stream_options || {}).include_usage)
-  log.info(`chat model=${model} 入口=${req.__entry || 'main'} stream=${Boolean(body.stream)}${t.bridged ? ' 工具桥' : ''}${t.mute.size ? ' 抑制模板工具' : ''}`)
+  log.info(`chat model=${model} 入口=${req.__entry || 'main'} stream=${Boolean(body.stream)}${t.mute.size ? ' 抑制模板工具' : ''}`)
   if (body.stream) return streamchat(res, t, open, model, includeusage)
 
   // 非流式同样要重问：撞到不存在的工具就当作没发生，加一句提醒再问
@@ -531,7 +481,7 @@ async function chat(req, res) {
     }
     r = await collect(up)
     // 先按上游名字抑制，再还原改名，否则客户端的 c_read 会被还原成 read 而误杀
-    const unwrapped = unwrapcalls(r.toolcalls, t.map, t.allow)
+    const unwrapped = unwrapcalls(r.toolcalls)
     const gated = gatecalls(unwrapped.calls, t.allow)
     const raw = mutecalls(gated.calls, t.mute, t.remap)
     // 参数闸门排在抑制之后：被抑制的模板工具该报不可用，不该报缺参数
@@ -679,12 +629,11 @@ async function streamchat(res, t, open, model, includeusage) {
   let sentrole = false
 
   while (true) {
-    // 每一轮都现取：上游嫌工具太多时 open() 会降级成桥，这几个值会跟着换
-    const map = t.map
+    // 每一轮都现取：抑制模式下这几个值可能被重问逻辑改写
     const mute = t.mute
     const alias = t.alias
-    // 工具桥开着时要攒齐 tool_calls 才能拆回真名，抑制开着时要攒齐才能吞
-    const holdcalls = Boolean((map && map.size) || (mute && mute.size))
+    // 抑制开着时要攒齐 tool_calls 才能吞
+    const holdcalls = Boolean(mute && mute.size)
     let up
     try {
       up = await open()
@@ -806,7 +755,7 @@ async function streamchat(res, t, open, model, includeusage) {
       calls = [...held.keys()].sort((a, b) => a - b).map((i) => held.get(i))
       for (const c of calls) if (!c.id) c.id = callid()
       // 先按上游名字抑制，再还原改名，否则客户端的 c_read 会被还原成 read 而误杀
-      const unwrapped = unwrapcalls(calls, t.map, t.allow)
+      const unwrapped = unwrapcalls(calls)
       const gated = gatecalls(unwrapped.calls, t.allow)
       const raw = mutecalls(gated.calls, t.mute, t.remap)
       // 参数闸门排在抑制之后：被抑制的模板工具该报不可用，不该报缺参数
@@ -1248,23 +1197,12 @@ async function responses(req, res) {
   if (req.__rec) req.__rec.model = model
   const ac = new AbortController()
   req.on('close', () => ac.abort())
-  // 上游真按工具数量拒绝时，降级成工具桥再试一次；降过就只降一次，避免来回折腾
-  let fell = false
-  const open = async () => {
-    try {
-      return await openstream(await buildbody(wire(t), model, t.params), ac.signal)
-    } catch (err) {
-      if (fell || !istoolcount(err)) throw err
-      fell = true
-      if (!replan(t)) throw err
-      log.info(`上游嫌工具太多，降到 ${toolcount(t)} 个并改用工具桥重试`)
-      return openstream(await buildbody(wire(t), model, t.params), ac.signal)
-    }
-  }
+  // 每次重问都要拿最新的 t.msgs 重建请求体，抑制时会把提示追加进去
+  const open = async () => openstream(await buildbody(wire(t), model, t.params), ac.signal)
 
   const meta = { id: respid('resp_'), created: Math.floor(Date.now() / 1000), model }
   const env = (status, output, usage) => respenvelope(meta, body, status, output, usage)
-  log.info(`responses model=${model} 入口=${req.__entry || 'main'} stream=${Boolean(body.stream)}${t.bridged ? ' 工具桥' : ''}${t.mute.size ? ' 抑制模板工具' : ''}`)
+  log.info(`responses model=${model} 入口=${req.__entry || 'main'} stream=${Boolean(body.stream)}${t.mute.size ? ' 抑制模板工具' : ''}`)
 
   if (body.stream) return streamresponse(res, t, open, env)
 
@@ -1282,7 +1220,7 @@ async function responses(req, res) {
       throw err
     }
     r = await collect(up)
-    const unwrapped = unwrapcalls(r.toolcalls, t.map, t.allow)
+    const unwrapped = unwrapcalls(r.toolcalls)
     const gated = gatecalls(unwrapped.calls, t.allow)
     const raw = mutecalls(gated.calls, t.mute, t.remap)
     // 参数闸门排在抑制之后：被抑制的模板工具该报不可用，不该报缺参数
@@ -1432,7 +1370,7 @@ async function streamresponse(res, t, open, env) {
     if (held.size) {
       calls = [...held.keys()].sort((a, b) => a - b).map((i) => held.get(i))
       for (const call of calls) if (!call.id) call.id = callid()
-      const unwrapped = unwrapcalls(calls, t.map, t.allow)
+      const unwrapped = unwrapcalls(calls)
       const gated = gatecalls(unwrapped.calls, t.allow)
       const raw = mutecalls(gated.calls, t.mute, t.remap)
       // 参数闸门排在抑制之后：被抑制的模板工具该报不可用，不该报缺参数
