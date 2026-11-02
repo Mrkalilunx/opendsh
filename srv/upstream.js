@@ -3,7 +3,8 @@
 import { readFile, stat } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
-import { nextsid, resetpool, nextproxy, attempts } from './sessions.js'
+import { nextsid, resetpool, nextproxy, attempts, proxies } from './sessions.js'
+import { switchip } from './egressswitch.js'
 import { getsettings } from './settings.js'
 import * as log from './logbus.js'
 
@@ -139,8 +140,9 @@ function headers(sid) {
   }
 }
 
-// 免费额度 429 的专用重试：这类 429 换个出口或等一会儿就能恢复，值得多试几次
-// 次数和间隔从设置读，不跟着 retries 走：retries=0 时也要有重试机会
+// 免费额度 429 的专用重试：额度按 (IP, session) 双维度计数
+// 只换 session 或只换 IP 都无效，必须两边一起换才有意义
+// 所以在同一个出口上原地等待重试是白费，必须换到另一个出口再试
 function freeretry() {
   const s = getsettings()
   const times = Math.max(0, Math.min(30, Math.trunc(Number(s.freeretries))))
@@ -222,12 +224,26 @@ export async function openstream(body, signal) {
       resetpool()
       reset = true
     }
-    // 免费额度用尽：换新 session 池，等一会儿再试，最多 free.times 次
-    // 定时等间隔而不是立刻连打，否则只是把同一批出口再撞一遍
+    // 免费额度用尽：换新 session 池，再换一个出口
+    // 额度按 (IP, session) 双维度计数，只换一边都不算换
     if (freetry < free.times) {
       freetry += 1
-      log.info(`免费额度 429，第 ${freetry}/${free.times} 次重试，${free.waitms / 1000} 秒后再发`)
-      await sleep(free.waitms, signal)
+      // 有代理池就换下一个出口，没池子就开关飞行模式换 IP
+      if (proxies.length) {
+        log.info(`免费额度 429，第 ${freetry}/${free.times} 次重试，${free.waitms / 1000} 秒后换下一个出口`)
+        await sleep(free.waitms, signal)
+      } else {
+        log.info(`免费额度 429，第 ${freetry}/${free.times} 次重试，开关飞行模式换出口 IP`)
+        // 同一个请求内连续换几次是正常的：换完仍可能撞上限额
+        // 换不到新 IP 就到此为止，同一个 IP 再试多少次都是同一结果
+        const ip = await switchip(true)
+        if (!ip) {
+          log.warn('免费额度 429：出口 IP 换不动，停止重试')
+          plain = max
+          break
+        }
+        await sleep(free.waitms, signal)
+      }
       // 这一轮不算普通重试，原地再来一遍
       continue
     }
@@ -236,12 +252,13 @@ export async function openstream(body, signal) {
   }
 
   if (last && String(last.body).includes('FreeUsageLimitError')) {
-    const tried = free.times > 0
-      ? `已重试 ${freetry} 次、每次间隔 ${free.waitms / 1000} 秒，仍到限额`
+    const tried = freetry > 0
+      ? `已换 ${freetry} 次出口仍未恢复`
       : '未开启重试'
-    last.hint = attempts() > 1
-      ? `代理池 ${attempts()} 个出口都到限额了：${tried}，换一批新代理或开关移动数据换 IP 后重试`
-      : `免费额度已用尽：${tried}，session 池已自动换新，开关一次移动数据或飞行模式换出口 IP 后重试`
+    // 额度按 IP 计数，同一个 IP 上等多久都不会恢复，只能换出口
+    last.hint = proxies.length
+      ? `额度按 IP 计数：代理池 ${proxies.length} 个出口都到限额了，${tried}，换一批新代理或开关移动数据换 IP 后重试`
+      : `额度按 IP 计数：本机出口已到限额，${tried}，开关一次移动数据或飞行模式换出口 IP 后重试`
   }
   throw last || new APIError(0, '没有可用的出口')
 }
