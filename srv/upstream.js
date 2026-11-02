@@ -240,13 +240,13 @@ export async function openstream(body, signal) {
       log.info(`免费额度 429，第 ${freetry}/${free.times} 次重试，关开移动数据换出口 IP`)
       // 同一个请求内连续换几次是正常的：换完仍可能撞上限额
       // 换不到新 IP 就到此为止，同一个 IP 再试多少次都是同一结果
+      // switchip 内部已经等到网络恢复并拿到新 IP，不必再额外等间隔
       const ip = await switchip(freetry === 1)
       if (!ip) {
         log.warn('免费额度 429：出口 IP 换不动，停止重试')
         plain = max
         break
       }
-      await sleep(free.waitms, signal)
       continue
     }
     // 没开自动换 IP，或者换的次数用完了：这个 429 没有可恢复的余地
