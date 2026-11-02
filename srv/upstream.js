@@ -224,41 +224,49 @@ export async function openstream(body, signal) {
       resetpool()
       reset = true
     }
-    // 免费额度用尽：换新 session 池，再换一个出口
-    // 额度按 (IP, session) 双维度计数，只换一边都不算换
-    if (freetry < free.times) {
+    // 免费额度用尽：额度按 (IP, session) 双维度计数，只换 session 不算换
+    // 同一个出口上等多久都不会恢复，所以这里的重试一律是「换出口」
+    const autoswitch = Boolean(settings.autoswitch)
+    // 有代理池就走代理轮换，不需要 adb
+    if (proxies.length && freetry < free.times) {
       freetry += 1
-      // 有代理池就换下一个出口，没池子就开关飞行模式换 IP
-      if (proxies.length) {
-        log.info(`免费额度 429，第 ${freetry}/${free.times} 次重试，${free.waitms / 1000} 秒后换下一个出口`)
-        await sleep(free.waitms, signal)
-      } else {
-        log.info(`免费额度 429，第 ${freetry}/${free.times} 次重试，开关飞行模式换出口 IP`)
-        // 同一个请求内连续换几次是正常的：换完仍可能撞上限额
-        // 换不到新 IP 就到此为止，同一个 IP 再试多少次都是同一结果
-        const ip = await switchip(true)
-        if (!ip) {
-          log.warn('免费额度 429：出口 IP 换不动，停止重试')
-          plain = max
-          break
-        }
-        await sleep(free.waitms, signal)
-      }
-      // 这一轮不算普通重试，原地再来一遍
+      log.info(`免费额度 429，第 ${freetry}/${free.times} 次重试，${free.waitms / 1000} 秒后换下一个出口`)
+      await sleep(free.waitms, signal)
       continue
     }
-    // 免费额度重试用尽，这个 429 已经没有可恢复的余地，直接抛出去
+    // 没代理池只能换本机出口，这要 adb 权限，且必须在设置里开过
+    if (autoswitch && !proxies.length && freetry < free.times) {
+      freetry += 1
+      log.info(`免费额度 429，第 ${freetry}/${free.times} 次重试，关开移动数据换出口 IP`)
+      // 同一个请求内连续换几次是正常的：换完仍可能撞上限额
+      // 换不到新 IP 就到此为止，同一个 IP 再试多少次都是同一结果
+      const ip = await switchip(freetry === 1)
+      if (!ip) {
+        log.warn('免费额度 429：出口 IP 换不动，停止重试')
+        plain = max
+        break
+      }
+      await sleep(free.waitms, signal)
+      continue
+    }
+    // 没开自动换 IP，或者换的次数用完了：这个 429 没有可恢复的余地
     plain = max
   }
 
   if (last && String(last.body).includes('FreeUsageLimitError')) {
-    const tried = freetry > 0
-      ? `已换 ${freetry} 次出口仍未恢复`
-      : '未开启重试'
+    const autoswitch = Boolean(settings.autoswitch)
+    let tried
+    if (freetry > 0) tried = `已换 ${freetry} 次出口仍未恢复`
+    else if (!autoswitch && !proxies.length) tried = '自动换 IP 未开启'
+    else tried = '未开启重试'
     // 额度按 IP 计数，同一个 IP 上等多久都不会恢复，只能换出口
-    last.hint = proxies.length
-      ? `额度按 IP 计数：代理池 ${proxies.length} 个出口都到限额了，${tried}，换一批新代理或开关移动数据换 IP 后重试`
-      : `额度按 IP 计数：本机出口已到限额，${tried}，开关一次移动数据或飞行模式换出口 IP 后重试`
+    if (proxies.length) {
+      last.hint = `额度按 IP 计数：代理池 ${proxies.length} 个出口都到限额了，${tried}，换一批新代理后重试`
+    } else if (!autoswitch) {
+      last.hint = `额度按 IP 计数：本机出口已到限额，${tried}，开关一次移动数据或飞行模式换 IP 后重试；也可以在设置里打开「额度耗尽自动换 IP」`
+    } else {
+      last.hint = `额度按 IP 计数：本机出口已到限额，${tried}，开关一次移动数据或飞行模式换 IP 后重试`
+    }
   }
   throw last || new APIError(0, '没有可用的出口')
 }

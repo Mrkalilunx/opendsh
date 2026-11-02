@@ -53,6 +53,9 @@ function syncswitch() {
   const wbox = el('setraw')
   const wlabel = el('setrawtext')
   if (wbox && wlabel) wlabel.textContent = wbox.checked ? '启用' : '关闭'
+  const abox = el('setautoswitch')
+  const alabel = el('setautoswitchtext')
+  if (abox && alabel) alabel.textContent = abox.checked ? '开启' : '关闭'
 }
 
 // sk 校验开关在设置卡里，开关文字跟着勾选走，API Key 卡的注记只反映已生效的状态
@@ -89,6 +92,8 @@ function fill(settings) {
   if (rbox) rbox.checked = Boolean(settings.responses)
   const wbox = el('setraw')
   if (wbox) wbox.checked = Boolean(settings.rawentry)
+  const abox = el('setautoswitch')
+  if (abox) abox.checked = Boolean(settings.autoswitch)
   syncswitch()
   const skey = el('keyauth')
   if (skey) skey.checked = Boolean(settings.keyauth)
@@ -102,6 +107,7 @@ function collect() {
   const body = {
     defaultmodel: el('setmodel').value.trim(),
     retries: num('setretries'),
+    autoswitch: el('setautoswitch').checked,
     freeretries: num('setfreeretries'),
     freeretryms: num('setfreeretryms'),
     timeoutms: num('settimeout'),
@@ -271,6 +277,7 @@ export function mountsettings() {
   el('setproxy')?.addEventListener('change', syncswitch)
   el('settools')?.addEventListener('change', syncswitch)
   el('setraw')?.addEventListener('change', syncswitch)
+  el('setautoswitch')?.addEventListener('change', syncswitch)
   el('keyauth')?.addEventListener('change', syncskey)
   // Responses 开关搬到 Codex 那栏，不在表单里，得单独接一条自动保存
   el('setresp')?.addEventListener('change', () => {

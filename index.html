@@ -362,10 +362,20 @@
               <span class="field-hint">0 表示跟随出口代理池数量</span>
             </div>
 
+            <div class="field field-row">
+              <span class="field-key">额度耗尽自动换 IP</span>
+              <label class="switch">
+                <input id="setautoswitch" type="checkbox">
+                <span class="switch-track"><span class="switch-knob"></span></span>
+                <span class="switch-text" id="setautoswitchtext">关闭</span>
+              </label>
+            </div>
+            <p class="field-hint" id="autoswitchnote">开启后额度用完先关开一次移动数据换出口，不直接把耗尽返给客户端；需要 adb 权限，默认关闭</p>
+
             <div class="field">
               <span class="field-key">额度重试次数</span>
               <input class="field-input" id="setfreeretries" type="number" min="0" max="30" step="1">
-              <span class="field-hint">额度用完时换几次出口，0 表示不换</span>
+              <span class="field-hint">换几次出口，0 表示不换；换完仍耗尽才返回</span>
             </div>
 
             <div class="field">

@@ -16,7 +16,9 @@ const legacy = path.join(here, '.state', 'settings.json')
 export const spec = {
   defaultmodel: { type: 'string', max: 120 },
   retries: { type: 'number', min: 0, max: 10, step: 1 },
-  // 免费额度 429 的专用重试：次数为 0 表示不重试，间隔用毫秒
+  // 额度耗尽时自动关开数据换 IP：需要 adb 权限，默认关闭，免得擅自断网
+  autoswitch: { type: 'boolean' },
+  // 自动换 IP 的最多次数：换一次能恢复就够，换不到就早点返回
   freeretries: { type: 'number', min: 0, max: 30, step: 1 },
   freeretryms: { type: 'number', min: 1000, max: 60000, step: 1000 },
   timeoutms: { type: 'number', min: 5000, max: 120000, step: 1000 },
@@ -46,8 +48,10 @@ export const spec = {
 const fallback = {
   defaultmodel: process.env.model || 'deepseek-v4.1-flash-free',
   retries: Math.max(0, Number(process.env.attempts || 0)),
-  // 免费额度 429 默认重试 10 次、每次间隔 5 秒，约 50 秒
-  freeretries: 10,
+  // 额度耗尽自动关开数据换 IP，默认关闭：会短暂断网，不该擅自动
+  autoswitch: false,
+  // 换出口的次数：关开一次数据实测约 10 秒，默认只换一次，还不行就直接返回
+  freeretries: 1,
   freeretryms: 5000,
   timeoutms: 30000,
   sessionpool: Math.max(1, Number(process.env.sessions || 20)),
@@ -96,8 +100,21 @@ function clamp(input) {
     const value = input[key]
     // 旧配置文件里没有新键时不能当成 false / 0，否则新增的默认值会被抹掉
     if (value === undefined || value === null) continue
+    // 只认真实的真假值：Boolean("false") 是 true，认不出的值宁可保持默认
+    // 前端复选框传的是真布尔，这里主要挡手写 JSON 和旧配置文件
     if (rule.type === 'boolean') {
-      out[key] = Boolean(value)
+      if (typeof value === 'boolean') {
+        out[key] = value
+        continue
+      }
+      if (value === 1 || value === 'true' || value === '1') {
+        out[key] = true
+        continue
+      }
+      if (value === 0 || value === 'false' || value === '0') {
+        out[key] = false
+        continue
+      }
       continue
     }
     if (rule.type === 'string') {
@@ -164,5 +181,6 @@ export function describe(settings) {
   const free = Number(settings.freeretries) > 0
     ? `${settings.freeretries}次/每次${Number(settings.freeretryms) / 1000}秒`
     : '关'
-  return `默认模型 ${settings.defaultmodel} · 重试 ${retry} · 额度重试 ${free} · 超时 ${settings.timeoutms}ms · 池 ${settings.sessionpool} · 温度 ${temp} · 上限 ${tok} · Responses ${settings.responses ? '开' : '关'}`
+  const auto = settings.autoswitch ? '自动换IP开' : '自动换IP关'
+  return `默认模型 ${settings.defaultmodel} · 重试 ${retry} · 额度重试 ${free} · ${auto} · 超时 ${settings.timeoutms}ms · 池 ${settings.sessionpool} · 温度 ${temp} · 上限 ${tok} · Responses ${settings.responses ? '开' : '关'}`
 }
