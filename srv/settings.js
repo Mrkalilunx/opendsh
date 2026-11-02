@@ -16,6 +16,9 @@ const legacy = path.join(here, '.state', 'settings.json')
 export const spec = {
   defaultmodel: { type: 'string', max: 120 },
   retries: { type: 'number', min: 0, max: 10, step: 1 },
+  // 免费额度 429 的专用重试：次数为 0 表示不重试，间隔用毫秒
+  freeretries: { type: 'number', min: 0, max: 30, step: 1 },
+  freeretryms: { type: 'number', min: 1000, max: 60000, step: 1000 },
   timeoutms: { type: 'number', min: 5000, max: 120000, step: 1000 },
   sessionpool: { type: 'number', min: 1, max: 100, step: 1 },
   proxypool: { type: 'boolean' },
@@ -43,6 +46,9 @@ export const spec = {
 const fallback = {
   defaultmodel: process.env.model || 'deepseek-v4.1-flash-free',
   retries: Math.max(0, Number(process.env.attempts || 0)),
+  // 免费额度 429 默认重试 10 次、每次间隔 5 秒，约 50 秒
+  freeretries: 10,
+  freeretryms: 5000,
   timeoutms: 30000,
   sessionpool: Math.max(1, Number(process.env.sessions || 20)),
   proxypool: true,
@@ -155,5 +161,8 @@ export function describe(settings) {
   const retry = Number(settings.retries) > 0 ? settings.retries : '跟随出口池'
   const temp = Number(settings.temp) >= 0 ? settings.temp : '跟随请求'
   const tok = Number(settings.maxtok) > 0 ? settings.maxtok : '跟随请求'
-  return `默认模型 ${settings.defaultmodel} · 重试 ${retry} · 超时 ${settings.timeoutms}ms · 池 ${settings.sessionpool} · 温度 ${temp} · 上限 ${tok} · Responses ${settings.responses ? '开' : '关'}`
+  const free = Number(settings.freeretries) > 0
+    ? `${settings.freeretries}次/每次${Number(settings.freeretryms) / 1000}秒`
+    : '关'
+  return `默认模型 ${settings.defaultmodel} · 重试 ${retry} · 额度重试 ${free} · 超时 ${settings.timeoutms}ms · 池 ${settings.sessionpool} · 温度 ${temp} · 上限 ${tok} · Responses ${settings.responses ? '开' : '关'}`
 }

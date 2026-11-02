@@ -140,9 +140,13 @@ function headers(sid) {
 }
 
 // 免费额度 429 的专用重试：这类 429 换个出口或等一会儿就能恢复，值得多试几次
-// 次数和间隔单列，不跟着 retries 走：retries=0 时也要有重试机会
-const freeretries = 10
-const freeretryms = 5000
+// 次数和间隔从设置读，不跟着 retries 走：retries=0 时也要有重试机会
+function freeretry() {
+  const s = getsettings()
+  const times = Math.max(0, Math.min(30, Math.trunc(Number(s.freeretries))))
+  const waitms = Math.max(1000, Math.min(60000, Math.trunc(Number(s.freeretryms)) || 5000))
+  return { times, waitms }
+}
 
 // 隔一段时间再试，等待期间客户端断开就提前返回，不空等满整段
 function sleep(ms, signal) {
@@ -167,6 +171,7 @@ export async function openstream(body, signal) {
   // 普通重试额度用完就停，免费额度的重试不占它，所以单独放行
   let plain = 0
   const settings = getsettings()
+  const free = freeretry()
 
   // 用 while 而不是 for：免费额度那次重试要原地再来一遍，不消耗普通重试次数
   while (plain < max) {
@@ -217,12 +222,12 @@ export async function openstream(body, signal) {
       resetpool()
       reset = true
     }
-    // 免费额度用尽：换新 session 池，等一会儿再试，最多 freeretries 次
+    // 免费额度用尽：换新 session 池，等一会儿再试，最多 free.times 次
     // 定时等间隔而不是立刻连打，否则只是把同一批出口再撞一遍
-    if (freetry < freeretries) {
+    if (freetry < free.times) {
       freetry += 1
-      log.info(`免费额度 429，第 ${freetry}/${freeretries} 次重试，${freeretryms / 1000} 秒后再发`)
-      await sleep(freeretryms, signal)
+      log.info(`免费额度 429，第 ${freetry}/${free.times} 次重试，${free.waitms / 1000} 秒后再发`)
+      await sleep(free.waitms, signal)
       // 这一轮不算普通重试，原地再来一遍
       continue
     }
@@ -231,7 +236,9 @@ export async function openstream(body, signal) {
   }
 
   if (last && String(last.body).includes('FreeUsageLimitError')) {
-    const tried = `已重试 ${freetry} 次、每次间隔 ${freeretryms / 1000} 秒，仍到限额`
+    const tried = free.times > 0
+      ? `已重试 ${freetry} 次、每次间隔 ${free.waitms / 1000} 秒，仍到限额`
+      : '未开启重试'
     last.hint = attempts() > 1
       ? `代理池 ${attempts()} 个出口都到限额了：${tried}，换一批新代理或开关移动数据换 IP 后重试`
       : `免费额度已用尽：${tried}，session 池已自动换新，开关一次移动数据或飞行模式换出口 IP 后重试`

@@ -3,6 +3,8 @@
 const fields = {
   defaultmodel: 'setmodel',
   retries: 'setretries',
+  freeretries: 'setfreeretries',
+  freeretryms: 'setfreeretryms',
   timeoutms: 'settimeout',
   sessionpool: 'setpool',
   logshow: 'setlogshow',
@@ -100,6 +102,8 @@ function collect() {
   const body = {
     defaultmodel: el('setmodel').value.trim(),
     retries: num('setretries'),
+    freeretries: num('setfreeretries'),
+    freeretryms: num('setfreeretryms'),
     timeoutms: num('settimeout'),
     sessionpool: num('setpool'),
     logshow: num('setlogshow'),

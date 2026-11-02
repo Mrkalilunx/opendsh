@@ -363,6 +363,18 @@
             </div>
 
             <div class="field">
+              <span class="field-key">额度重试次数</span>
+              <input class="field-input" id="setfreeretries" type="number" min="0" max="30" step="1">
+              <span class="field-hint">免费额度用完时重试几次，0 表示不重试</span>
+            </div>
+
+            <div class="field">
+              <span class="field-key">额度重试间隔（毫秒）</span>
+              <input class="field-input" id="setfreeretryms" type="number" min="1000" max="60000" step="1000">
+              <span class="field-hint">每次重试前等多久，默认 5000 即 5 秒</span>
+            </div>
+
+            <div class="field">
               <span class="field-key">上游超时（毫秒）</span>
               <input class="field-input" id="settimeout" type="number" min="5000" max="120000" step="1000">
               <span class="field-hint">等上游响应头的上限，不包括流式输出时长</span>
