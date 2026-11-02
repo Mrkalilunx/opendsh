@@ -138,6 +138,10 @@ export async function openstream(body, signal) {
   let last = null
   let reset = false
   const max = attempts()
+  // 额度 429 换 session 重试不占 retries 名额：retries=0 且没有出口池时
+  // attempts() 只有 1，重建了 session 池却没机会再试，白白把 429 抛给客户端
+  // 所以命中免费额度 429 后单独再给一次机会，只给一次，避免来回撞
+  let spare = true
   const settings = getsettings()
 
   for (let i = 0; i < max; i += 1) {
@@ -183,6 +187,11 @@ export async function openstream(body, signal) {
     if (!reset) {
       resetpool()
       reset = true
+    }
+    // 池子重置后补一次机会，否则 retries=0 时循环已经到头
+    if (i === max - 1 && spare) {
+      spare = false
+      i -= 1
     }
   }
 

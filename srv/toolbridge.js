@@ -24,19 +24,41 @@ export function namesnote(prefixed, bridged, muted) {
   return lines.join('\n')
 }
 
-// 上游免费档把「exec 系 + write_stdin」这对工具名当成终端 agent 在用，直接回 429
-// 名字一换就正常，所以这一对同时出现时先改名再发，调用回来按映射还原
+// 上游免费档按工具名组合判定「这是不是终端 agent」，命中就回 429
+// 报错文案伪装成 FreeUsageLimitError，跟额度、IP、UA、session 全无关
+// 名字一换就正常，所以命中时先改名再发，调用回来按映射还原
 const escexec = /exec/i
 const escstdin = /write_stdin/i
 
+// astrbot 这两个名字同时出现必挂，换顺序、换描述、换参数 schema 都照挂
+// 实测 5 次一轮全稳定复现，单独出现任一个或换成别的写法都通过
+const escpairs = [
+  ['astrbot_execute_shell', 'astrbot_file_read_tool'],
+]
+
+// 命中哪一对就按哪个映射改名，两边都换成不含敏感词的名字
+function hitpairs(names) {
+  const hits = []
+  for (const [left, right] of escpairs) {
+    if (names.includes(left) && names.includes(right)) hits.push(left, right)
+  }
+  return hits
+}
+
 function escapepair(list) {
   const names = list.map((t) => (t.function || {}).name).filter(Boolean)
-  const hit = names.some((n) => escexec.test(n)) && names.some((n) => escstdin.test(n))
   const map = new Map()
-  if (!hit) return map
-  for (const n of names) {
-    if (escexec.test(n)) map.set(n, 'run_cmd')
-    else if (escstdin.test(n)) map.set(n, 'feed_tty')
+  const hit = names.some((n) => escexec.test(n)) && names.some((n) => escstdin.test(n))
+  if (hit) {
+    for (const n of names) {
+      if (escexec.test(n)) map.set(n, 'run_cmd')
+      else if (escstdin.test(n)) map.set(n, 'feed_tty')
+    }
+  }
+  // 精确名对：按原名字逐个给替换名，不用正则，避免误伤别的工具
+  for (const n of hitpairs(names)) {
+    if (map.has(n)) continue
+    map.set(n, n === 'astrbot_execute_shell' ? 'run_cmd' : 'read_text')
   }
   return map
 }
