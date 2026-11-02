@@ -123,9 +123,23 @@ function frontonly(file) {
 
 // ---- 静态与代理分发
 
+// 管理接口只管本机：服务默认绑 0.0.0.0，同网段谁都能连进来
+// 这些接口能读明文 API key、改设置、结束进程，不设限等于把设备交出去
+function local(req) {
+  const ip = (req.socket && (req.socket.remoteAddress || '')) || ''
+  // IPv4 映射的 IPv6 写法也要认，::ffff:127.0.0.1 就是本机
+  const one = ip.startsWith('::ffff:') ? ip.slice(7) : ip
+  return one === '127.0.0.1' || one === '::1' || one === 'localhost'
+}
+
 async function route(req, res) {
   const url = new URL(req.url, 'http://localhost')
   const p = decodeURIComponent(url.pathname)
+
+  // 管理面统一在这里挡，省得每个路由各写一遍，漏一处就是越权
+  if (p.startsWith('/__') && !local(req)) {
+    return text(res, 403, types['.txt'], '403 forbidden：管理接口只对本机开放')
+  }
 
   if (p === '/__events') return events(req, res)
   if (p === '/__live.js') return text(res, 200, types['.js'], livejs)
@@ -223,9 +237,18 @@ function broadcast(file) {
 
 // ---- 设置与日志接口
 
+// 管理接口的请求体上限：设置项最长也才几百字符，几 MB 已经远超正常量
+const maxadminbody = 4 * 1024 * 1024
+
 async function readbody(req) {
   const parts = []
-  for await (const part of req) parts.push(part)
+  let size = 0
+  for await (const part of req) {
+    size += part.length
+    // 管理接口没有大文件诉求，超限直接断，别把整段读进内存
+    if (size > maxadminbody) throw new Error('请求体过大')
+    parts.push(part)
+  }
   return Buffer.concat(parts).toString('utf8')
 }
 
@@ -253,8 +276,16 @@ function mustget(req, res) {
 // 读 JSON 请求体，不合法就回 400 并返回 undefined
 // 用 undefined 当哨兵而不是 null：字面量 null 也是解析成功的结果，不能和失败混为一谈
 async function readjson(req, res) {
+  let raw
   try {
-    return JSON.parse(await readbody(req))
+    raw = await readbody(req)
+  } catch (err) {
+    // 超限和格式错要分开说，否则用户会以为是自己 JSON 写坏了
+    text(res, 413, types['.json'], JSON.stringify({ error: err.message }))
+    return undefined
+  }
+  try {
+    return JSON.parse(raw)
   } catch {
     text(res, 400, types['.json'], JSON.stringify({ error: '请求体不是合法 JSON' }))
     return undefined

@@ -198,19 +198,39 @@ export async function openstream(body, signal) {
 export async function* iterchunks(res) {
   const decoder = new TextDecoder()
   let buf = ''
-  for await (const part of res.body) {
-    buf += decoder.decode(part, { stream: true })
+
+  // SSE 允许 data: 后面不带空格，也允许流结束时最后一行没有换行
+  // 这两种情况都见过，按规范逐行取字段才不会把内容静默丢掉
+  function* lines() {
     let nl
     while ((nl = buf.indexOf('\n')) !== -1) {
-      const line = buf.slice(0, nl).trim()
+      const line = buf.slice(0, nl).replace(/\r$/, '')
       buf = buf.slice(nl + 1)
-      if (!line.startsWith('data: ')) continue
-      const payload = line.slice(6)
-      if (payload === '[DONE]') continue
+      if (line.startsWith('data:')) yield line.slice(5).trim()
+    }
+  }
+
+  for await (const part of res.body) {
+    buf += decoder.decode(part, { stream: true })
+    for (const payload of lines()) {
+      if (!payload || payload === '[DONE]') continue
       try {
         yield JSON.parse(payload)
       } catch {
         // 半行或非 JSON，丢掉
+      }
+    }
+  }
+  // 收尾再冲一次：末尾没有换行时最后那条还留在 buf 里
+  buf += decoder.decode()
+  const tail = buf.replace(/\r$/, '')
+  if (tail.startsWith('data:')) {
+    const payload = tail.slice(5).trim()
+    if (payload && payload !== '[DONE]') {
+      try {
+        yield JSON.parse(payload)
+      } catch {
+        // 残缺的尾巴丢掉
       }
     }
   }
@@ -309,6 +329,13 @@ export async function finduseragent() {
   return { ua: '', ok: false, tried }
 }
 
+// 上游给的用量字段未必是数字：见过字符串、null、负数
+// 直接原样用会让整条请求记录写库失败，排查时连请求体都一起丢了，所以这里统一洗成非负整数
+function tok(v) {
+  const n = Math.trunc(Number(v))
+  return Number.isFinite(n) && n > 0 ? n : 0
+}
+
 export function normusage(usage) {
   if (!usage) {
     return {
@@ -319,11 +346,15 @@ export function normusage(usage) {
       completion_tokens_details: { reasoning_tokens: 0 },
     }
   }
+  const prompt = tok(usage.prompt_tokens)
+  const completion = tok(usage.completion_tokens)
+  // 上游偶尔不给 total 或给的数对不上，按两项之和兜底，统计才不会漏
+  const total = Math.max(tok(usage.total_tokens), prompt + completion)
   return {
-    prompt_tokens: usage.prompt_tokens || 0,
-    completion_tokens: usage.completion_tokens || 0,
-    total_tokens: usage.total_tokens || 0,
-    prompt_tokens_details: { cached_tokens: (usage.prompt_tokens_details || {}).cached_tokens || 0 },
-    completion_tokens_details: { reasoning_tokens: (usage.completion_tokens_details || {}).reasoning_tokens || 0 },
+    prompt_tokens: prompt,
+    completion_tokens: completion,
+    total_tokens: total,
+    prompt_tokens_details: { cached_tokens: tok((usage.prompt_tokens_details || {}).cached_tokens) },
+    completion_tokens_details: { reasoning_tokens: tok((usage.completion_tokens_details || {}).reasoning_tokens) },
   }
 }

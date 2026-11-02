@@ -88,13 +88,15 @@ export function unalias(calls, alias) {
   })
 }
 
+// 解开参数串，解不开就返回 null 而不是空对象
+// 空对象会被当成「一个键都没给」，把截断的 JSON 误报成缺全部参数
 function parseargs(raw) {
   if (raw && typeof raw === 'object') return raw
   try {
     const doc = JSON.parse(String(raw || '{}'))
-    return doc && typeof doc === 'object' ? doc : {}
+    return doc && typeof doc === 'object' ? doc : null
   } catch {
-    return {}
+    return null
   }
 }
 
@@ -134,6 +136,12 @@ export function argcalls(calls, need) {
       continue
     }
     const args = parseargs(fn.arguments)
+    // 参数根本解不开（截断、非法 JSON）时说不清是缺哪个键，放行交给客户端自己报错
+    // 硬判成「缺全部参数」会把模型已经给出的参数白扔掉，还给它错误提示
+    if (!args) {
+      kept.push(call)
+      continue
+    }
     // 只认 undefined，null 和空字符串是模型自己给的值，不算漏
     const gone = keys.filter((one) => args[one] === undefined)
     if (gone.length) {
@@ -274,6 +282,8 @@ export function buildremap(mute, tools) {
 // 参数照表搬过去，关键参数没地方落就放弃改派，宁可照旧吞掉
 function remapcall(call, rule) {
   const src = parseargs(call.function.arguments)
+  // 参数解不开就没法搬，放弃改派
+  if (!src) return null
   if (rule.make) {
     const cmd = rule.make(src, rule.props)
     if (!cmd) return null

@@ -22,6 +22,8 @@ const passthrough = [
   'temperature', 'top_p', 'stop', 'presence_penalty', 'frequency_penalty', 'seed',
   'user', 'response_format', 'logit_bias', 'logprobs', 'top_logprobs',
   'parallel_tool_calls', 'reasoning_effort', 'service_tier', 'metadata', 'store',
+  // 客户端点名要用哪个工具时不透传，等于让它这轮白说
+  'tool_choice',
 ]
 const roles = new Set(['system', 'developer', 'user', 'assistant', 'tool', 'function'])
 
@@ -179,6 +181,20 @@ async function translate(req) {
     }
   }
 
+  // tool_choice 里点名客户端工具时，名字也要换成上游那份带前缀的写法
+  // 否则指到一个上游不存在的名字，等于把客户端的指定白扔掉
+  if (params.tool_choice && typeof params.tool_choice === 'object') {
+    const pick = params.tool_choice.function
+    if (pick && typeof pick.name === 'string') {
+      const real = pick.name
+      for (const [up, name] of alias) {
+        if (name !== real) continue
+        params.tool_choice = { ...params.tool_choice, function: { ...pick, name: up } }
+        break
+      }
+    }
+  }
+
   const t = {
     msgs,
     requested: req.model || '',
@@ -238,7 +254,7 @@ async function collect(res) {
         const slot = calls.get(i)
         if (tc.id) slot.id = tc.id
         const fn = tc.function || {}
-        if (fn.name) slot.function.name = fn.name
+        if (fn.name) slot.function.name += fn.name
         if (fn.arguments) slot.function.arguments += fn.arguments
       }
       const lp = ch.logprobs
@@ -276,10 +292,23 @@ const packet = (obj) => `data: ${JSON.stringify(obj)}\n\n`
 
 // ---- 路由
 
+// 请求体上限：正常对话远达不到这个量级，超了基本都是误传大文件或恶意打内存
+const maxreqbody = 64 * 1024 * 1024
+
 // 请求体先整段读出来，既能给解析用，也能原样留档
+// 边读边累计长度，超限立刻停手并断开，不等读完全部再判断
 async function drain(req) {
   const parts = []
-  for await (const part of req) parts.push(part)
+  let size = 0
+  for await (const part of req) {
+    size += part.length
+    if (size > maxreqbody) {
+      const err = new Error('请求体过大')
+      err.toobig = true
+      throw err
+    }
+    parts.push(part)
+  }
   return Buffer.concat(parts).toString('utf8')
 }
 
@@ -363,30 +392,43 @@ export async function handle(req, res, url) {
   }
 
   if (req.method === 'POST' && (path === '/v1/chat/completions' || path === '/chat/completions')) {
-    const raw = await drain(req)
-    req.__raw = raw
-    req.__rec = tap(req, res, url, raw)
-    if (!verifykey(req.headers.authorization)) return unauthorized(res)
-    return chat(req, res)
+    return readpost(req, res, url, chat)
   }
 
   if (req.method === 'POST' && (path === '/v1/completions' || path === '/completions')) {
-    const raw = await drain(req)
-    req.__raw = raw
-    req.__rec = tap(req, res, url, raw)
-    if (!verifykey(req.headers.authorization)) return unauthorized(res)
-    return completions(req, res)
+    return readpost(req, res, url, completions)
   }
 
   if (req.method === 'POST' && (path === '/v1/responses' || path === '/responses')) {
-    const raw = await drain(req)
-    req.__raw = raw
-    req.__rec = tap(req, res, url, raw)
-    if (!verifykey(req.headers.authorization)) return unauthorized(res)
-    return responses(req, res)
+    return readpost(req, res, url, responses)
   }
 
   fail(res, 404, `Unknown path: ${path}`, 'invalid_request_error', null, 'unknown_url')
+}
+
+// 客户端断开时中止上游：必须挂在 res 的 close 上
+// 请求体读完之后才注册的 req close 在 Bun 下不再触发，挂上去等于没挂
+// 结果就是断线后上游一直跑到超时，白耗额度
+function abortonclose(res) {
+  const ac = new AbortController()
+  if (typeof res.on === 'function') res.on('close', () => ac.abort())
+  return ac
+}
+
+// 三个 POST 入口的公共前段：先验 key 再读体，没授权的请求不该白白读进几十兆
+// 读完再挂留档包装，超限则回 413 而不是让它把内存吃满
+async function readpost(req, res, url, handler) {
+  if (!verifykey(req.headers.authorization)) return unauthorized(res)
+  let raw
+  try {
+    raw = await drain(req)
+  } catch (err) {
+    if (err.toobig) return fail(res, 413, '请求体过大', 'invalid_request_error', null, 'request_too_large')
+    throw err
+  }
+  req.__raw = raw
+  req.__rec = tap(req, res, url, raw)
+  return handler(req, res)
 }
 
 async function models(res) {
@@ -454,8 +496,7 @@ async function chat(req, res) {
 
   const model = pickmodel(t.requested)
   if (req.__rec) req.__rec.model = model
-  const ac = new AbortController()
-  req.on('close', () => ac.abort())
+  const ac = abortonclose(res)
 
   // 每次重问都要拿最新的 t.msgs 重建请求体，抑制时会把提示追加进去
   const open = async () => openstream(await buildbody(wire(t), model, t.params), ac.signal)
@@ -539,7 +580,9 @@ function gating(t, calls) {
 // 先重申几次，语气一轮比一轮重；重申用尽就禁掉工具再问一次，最后才认输
 // 这一轮已经吐过正文就不能重问，否则正文会重复输出，只能就地吞掉收尾
 function reask(t, box, picked, said) {
-  if (!(picked.dropped > 0 && !picked.calls.length) || said) return false
+  // 已经边收边发出去的调用也算「留下了东西」，不能再重开一轮
+  const left = picked.calls.length + (picked.delivered || 0)
+  if (!(picked.dropped > 0 && !left) || said) return false
   if (box.attempt < maxtries) {
     box.attempt++
     log.info(`工具抑制：吞掉 ${picked.dropped} 个调用（${picked.names.join(',')}），第 ${box.attempt} 次重申`)
@@ -692,7 +735,7 @@ async function streamchat(res, t, open, model, includeusage) {
               const slot = held.get(i)
               if (tc.id) slot.id = tc.id
               const fn = tc.function || {}
-              if (fn.name) slot.function.name = fn.name
+              if (fn.name) slot.function.name += fn.name
               if (fn.arguments) slot.function.arguments += fn.arguments
             }
             sawtool0 = true
@@ -754,6 +797,9 @@ async function streamchat(res, t, open, model, includeusage) {
     const held0 = [...held.keys()].sort((a, b) => a - b).map((i) => held.get(i))
     for (const c of held0) if (!c.id) c.id = callid()
     let picked = held0.length ? gating(t, held0) : { calls: [], dropped: 0, names: [], invalid: [], missing: [] }
+    // 不攒直接边收边发的那条路，好调用早就发给客户端了，picked.calls 是空的
+    // 这里补记已经发出去的条数，否则会被当成「全被吞掉」而重开一轮，好调用跟着重发一遍
+    picked.delivered = holdcalls ? 0 : seen.size
     if (latebad.length) {
       picked.dropped += latebad.length
       picked.names = [...picked.names, ...latebad]
@@ -779,7 +825,7 @@ async function streamchat(res, t, open, model, includeusage) {
   })
   res.__usage = usage
 
-  const allmuted = outcome.dropped > 0 && !outcome.calls.length
+  const allmuted = outcome.dropped > 0 && !outcome.calls.length && !outcome.delivered
   // 全被吞掉又一句正文都没有，补一句中性的话，别让客户端拿到空气泡
   if (allmuted && !said) chunk({ content: mutetext() })
 
@@ -829,9 +875,11 @@ async function completions(req, res) {
 
   const model = pickmodel(body.model)
   if (req.__rec) req.__rec.model = model
+  // 和 chat 一样要能跟着客户端断开一起收手，否则断线后上游照样跑满超时
+  const ac = abortonclose(res)
   let up
   try {
-    up = await openstream(await buildbody([{ role: 'user', content: prompt }], model, params))
+    up = await openstream(await buildbody([{ role: 'user', content: prompt }], model, params), ac.signal)
   } catch (err) {
     if (err instanceof APIError) return upstreamfail(res, err)
     throw err
@@ -1168,8 +1216,7 @@ async function responses(req, res) {
 
   const model = pickmodel(t.requested)
   if (req.__rec) req.__rec.model = model
-  const ac = new AbortController()
-  req.on('close', () => ac.abort())
+  const ac = abortonclose(res)
   // 每次重问都要拿最新的 t.msgs 重建请求体，抑制时会把提示追加进去
   const open = async () => openstream(await buildbody(wire(t), model, t.params), ac.signal)
 
@@ -1300,7 +1347,7 @@ async function streamresponse(res, t, open, env) {
               const slot = held.get(i)
               if (tc.id) slot.id = tc.id
               const fn = tc.function || {}
-              if (fn.name) slot.function.name = fn.name
+              if (fn.name) slot.function.name += fn.name
               if (fn.arguments) slot.function.arguments += fn.arguments
             }
           }
