@@ -106,10 +106,14 @@ function paint() {
   if (!list) return
   list.innerHTML = ''
   const frag = document.createDocumentFragment()
+  // 全部行都从上往下依次刷入，整页一次性重绘时能看清是从头铺下来的
+  // 步长按总行数收放：不管多少行，整轮动画都压在 0.9 秒内结束
+  // 拖太久的话后面的行会长时间保持透明，看着像列表缺了一大块
+  const total = state.items.length
+  const step = total > 1 ? Math.min(22, Math.max(2, Math.floor(900 / total))) : 0
   state.items.forEach((item, index) => {
     const row = makerow(item)
-    // 只有开头几行错峰入场，后面几百行一起播会整片闪
-    if (index < 8) row.style.setProperty('--delay', `${index * 22}ms`)
+    if (step) row.style.setProperty('--delay', `${index * step}ms`)
     else row.dataset.static = '1'
     // 正在看详情的那条保持高亮，切日期重绘后也接得上
     if (state.openid && String(item.id) === state.openid) row.setAttribute('aria-current', 'true')

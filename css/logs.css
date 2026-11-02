@@ -715,9 +715,13 @@ html[data-view="logs"] .panel {
 @keyframes rowin {
   from {
     opacity: 0;
+    /* 带一点上移，逐行播时能看出是从上往下铺开的
+       位移很小，200 行也不会看着像列表在滑动 */
+    transform: translateY(-0.1875rem);
   }
   to {
     opacity: 1;
+    transform: none;
   }
 }
 
