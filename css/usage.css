@@ -21,7 +21,9 @@
   flex-direction: column;
   gap: 0.0625rem;
   min-width: 0;
-  padding: 0 0.75rem;
+  padding: 0 0.5rem;
+  /* 让下面的大数字按这一格自己的宽度缩放，而不是按整页宽度 */
+  container-type: inline-size;
 }
 
 .usagestat + .usagestat {
@@ -37,9 +39,15 @@
 }
 
 .usagestat-val {
-  font-size: 1.5rem;
+  /* 数字绝不折行：折了中间那格会变成两行，把三格高度顶歪
+     宽度不够时按格子宽度缩字号，而不是换行
+     单位「万」「亿」也算进宽度，所以系数按 3.45 个字宽反推 */
+  font-size: 1.35rem;
+  font-size: clamp(0.95rem, 26cqi, 1.5rem);
   font-weight: 800;
   line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
   font-variant-numeric: tabular-nums;
   color: var(--accent-ink);
 }
