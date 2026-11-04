@@ -1,31 +1,21 @@
 // 工具改名与出站闸门：客户端工具加前缀发上去，调用回来再还原
 // 对客户端来说完全透明：它照样收到自己那套 OpenAI tool_calls
 
-// 客户端工具一律加 c_ 前缀发上去，规则固定，不随冲突情况变
-// 这样同一会话里工具名永远一致，不会这一轮叫 read、下一轮叫 c_read
-// 模板那 12 个名字不带 c_，天然不会撞，所以前缀加一次就够，不需要循环避让
-const sameprefix = 'c_'
+// 客户端工具一律原名直发，不再加任何前缀
+// 以前加 c_ 是为了避开出站那个 read，现在 read 只在客户端自己没有时才注入，
+// 而且注入的那份不带 type 字段，模型根本不认它是工具，所以前缀这层多余了
+// 唯一还需要改名的是 astrbot 那对名字，那是另一条独立规则，与 read 无关
 
-// 给模型的固定命名约定，每轮都说同一句，不逐条点名那些模板工具
-export function namesnote(prefixed, muted) {
-  const lines = []
-  if (prefixed) {
-    lines.push(`工具列表里以 ${sameprefix} 开头的那些是调用方的工具，调用时按列表里的完整名字写，不要省略前缀。`)
-  }
-  if (Array.isArray(muted) && muted.length) {
-    lines.push(`模板里的 ${muted.join('、')} 这批名字在本轮不算可用工具；能对上调用方工具的会自动改派，对不上的会被丢掉，请优先直接用列表里带前缀的工具。`)
-  }
-  return lines.join('\n')
+// 出站不再有命名约定要交代，工具名就是客户端自己的名字
+// 留个空实现是因为调用点还按「有就拼上」在拼，返回空串自然什么都不加
+export function namesnote() {
+  return ''
 }
 
 // 上游免费档按工具名组合判定「这是不是终端 agent」，命中就回 429
 // 报错文案伪装成 FreeUsageLimitError，跟额度、IP、UA、session 全无关
-// 名字一换就正常，所以命中时先改名再发，调用回来按映射还原
-const escexec = /exec/i
-const escstdin = /write_stdin/i
-
-// astrbot 这两个名字同时出现必挂，换顺序、换描述、换参数 schema 都照挂
-// 实测 5 次一轮全稳定复现，单独出现任一个或换成别的写法都通过
+// 实测极简出站形态下只剩 astrbot 这一对仍会触发，其余组合都能过
+// 命中时先改名再发，调用回来按映射还原
 const escpairs = [
   ['astrbot_execute_shell', 'astrbot_file_read_tool'],
 ]
@@ -42,13 +32,6 @@ function hitpairs(names) {
 function escapepair(list) {
   const names = list.map((t) => (t.function || {}).name).filter(Boolean)
   const map = new Map()
-  const hit = names.some((n) => escexec.test(n)) && names.some((n) => escstdin.test(n))
-  if (hit) {
-    for (const n of names) {
-      if (escexec.test(n)) map.set(n, 'run_cmd')
-      else if (escstdin.test(n)) map.set(n, 'feed_tty')
-    }
-  }
   // 精确名对：按原名字逐个给替换名，不用正则，避免误伤别的工具
   for (const n of hitpairs(names)) {
     if (map.has(n)) continue
@@ -57,6 +40,8 @@ function escapepair(list) {
   return map
 }
 
+// 客户端工具原名直发，这里只处理 astrbot 那对需要改名的
+// taken 是已经占用的名字：出站注入了 read 就把 read 传进来，避免撞上
 export function aliasnames(list, taken) {
   const map = new Map()
   const out = []
@@ -65,14 +50,16 @@ export function aliasnames(list, taken) {
   for (const t of list) {
     const fn = t.function || {}
     if (!fn.name) continue
-    const base = esc.get(fn.name) || fn.name
-    let next = sameprefix + base
+    const real = fn.name
+    // 绝大多数工具命中不了改名规则，原名直发
+    const base = esc.get(real) || real
+    let next = base
     let n = 1
-    // 客户端自己已经叫 c_xxx 时再叠一层，保证注入且不重复
-    while (used.has(next)) next = sameprefix + base + String(++n)
-    map.set(next, fn.name)
+    while (used.has(next)) next = base + String(++n)
+    // 只有真的改了名才记进对照表，没改名的不占条目
+    if (next !== real) map.set(next, real)
     used.add(next)
-    out.push({ ...t, function: { ...fn, name: next } })
+    out.push(next === real ? t : { ...t, function: { ...fn, name: next } })
   }
   return { list: out, map }
 }
@@ -264,14 +251,16 @@ const remaprules = [
   },
 ]
 
-// 按被抑制的模板工具名，找客户端里能顶上的那个，并记下它认哪些参数
+// 按被抑制的凭据名，找客户端里能顶上的那个，并记下它认哪些参数
+// 现在只会对注入的 read 凭据生效：客户端没带 read 时，模型调凭据能改派成真工具
 export function buildremap(mute, tools) {
   const out = new Map()
   if (!mute || !mute.size || !Array.isArray(tools)) return out
   const list = tools.filter((t) => t && t.function && t.function.name)
   for (const rule of remaprules) {
     if (!mute.has(rule.from) || out.has(rule.from)) continue
-    const hit = list.find((t) => rule.to.test(String(t.function.name).replace(/^c_/, '')))
+    // 名字是原名直发的，不再有前缀要剥
+    const hit = list.find((t) => rule.to.test(String(t.function.name)))
     if (!hit) continue
     const params = (hit.function.parameters && hit.function.parameters.properties) || {}
     out.set(rule.from, { name: hit.function.name, props: Object.keys(params), args: rule.args, make: rule.make })
@@ -330,14 +319,14 @@ export function mutecalls(calls, mute, remap) {
 
 // 只否定刚才那一次尝试，绝不波及同类或同名的其他可用工具
 // 用陈述事实的口吻，不用命令口吻，否则模型会把它当成可疑的指令注入并公开对抗
-// 客户端真有同名工具时会被改成 c_xxx，这里直接把正确的名字告诉它
-// 参数缺键是另一类错，措辞要跟「工具不可用」分开，否则模型会以为工具本身没了
+// 缺参数和工具不可用是两种完全不同的错，措辞必须分开：
+// 混成「工具不可用」会让模型以为整轮没有工具，之后再也不调，白白废掉一次能力
 export function mutepush(count, hint, argless) {
-  const base = argless ? '刚才那次调用没有生效：参数不全。' : '刚才那次调用没有生效：那个工具在本轮不可用。'
+  const base = argless ? '刚才那次调用没有生效：参数给得不全。' : '刚才那次调用没有生效：那个工具在本轮不可用。'
   const tip = hint ? ` ${hint}` : ''
   if (count <= 1) return base + tip
-  if (count === 2) return base + tip + '重复同一次调用仍然不会生效，换个工具或换个名字。'
-  return base + tip + `这是第 ${count} 次，同一个调用依然不生效，其余工具都正常。`
+  if (count === 2) return base + tip + ' 补齐参数后照原样再试一次就行。'
+  return base + tip + `这是第 ${count} 次，其余工具都正常。`
 }
 
 // 客户端回填历史时，assistant 消息里带的是真名

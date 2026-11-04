@@ -18,6 +18,7 @@ import { mountlogadmin } from './modules/logadmin.js'
 import { mountchat } from './modules/chat.js'
 import { mounthomemon } from './modules/homemon.js'
 import { mountusage } from './modules/usageview.js'
+import { mountdoc } from './modules/docview.js'
 import { mountrouter } from './modules/router.js'
 
 mounthero()
@@ -52,6 +53,7 @@ boot.push(hold(mountlogadmin))
 mountchat()
 mounthomemon()
 mountusage()
+mountdoc()
 mountrouter()
 
 // 数据没到齐之前二级菜单下面留白，到齐了一次性显出来，不再逐块闪

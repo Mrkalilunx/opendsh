@@ -870,3 +870,153 @@ textarea.field-input {
   color: #c81e45;
   border-color: rgba(200, 30, 69, 0.5);
 }
+
+/* 文档页：章节切换在上，正文在下，正文只读不参与表单 */
+.docnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.75rem;
+}
+
+.docnav-item {
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.3125rem 0.5625rem;
+  color: var(--fg-dim);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+  cursor: pointer;
+  transition: color 0.18s, border-color 0.18s, box-shadow 0.18s;
+}
+
+.docnav-item:hover:not([aria-pressed="true"]) {
+  color: var(--accent-ink);
+  border-color: var(--line-strong);
+}
+
+.docnav-item[aria-pressed="true"] {
+  color: var(--accent-ink);
+  background: var(--tint-2);
+  border-color: var(--line-strong);
+  box-shadow: 2px 2px 1px rgba(var(--accent-rgb), 0.12);
+}
+
+.docbody {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  margin-top: 0.875rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+}
+
+.dochead {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 800;
+  color: var(--accent-ink);
+}
+
+.docp {
+  margin: 0;
+  font-size: 0.781rem;
+  line-height: 1.7;
+  color: var(--fg-soft);
+}
+
+/* 提示块靠左边框区分，不用背景色块，暗色主题下也不会发灰 */
+.docnote {
+  margin: 0;
+  padding: 0.5rem 0.625rem;
+  font-size: 0.75rem;
+  line-height: 1.65;
+  color: var(--fg-dim);
+  background: var(--tint-1);
+  border-left: 2px solid var(--line-strong);
+  border-radius: 0 0.25rem 0.25rem 0;
+}
+
+.doclist {
+  margin: 0;
+  padding-left: 1.125rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.781rem;
+  line-height: 1.65;
+  color: var(--fg-soft);
+}
+
+.doclist li::marker {
+  color: var(--line-strong);
+}
+
+/* 代码块整块横滚，长行不许把面板撑宽 */
+.doccode {
+  margin: 0;
+  padding: 0.5625rem 0.6875rem;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.719rem;
+  line-height: 1.6;
+  color: var(--fg);
+  background: var(--tint-1);
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+  overflow-x: auto;
+  white-space: pre;
+  tab-size: 2;
+}
+
+/* 窄屏放不下就横滚，不要把列挤成一条一条 */
+.doctablewrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 0.25rem;
+}
+
+.doctable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.719rem;
+  line-height: 1.55;
+}
+
+.doctable th {
+  padding: 0.4375rem 0.5625rem;
+  font-weight: 700;
+  text-align: left;
+  white-space: nowrap;
+  color: var(--fg);
+  background: var(--tint-2);
+  border-bottom: 1px solid var(--line);
+}
+
+.doctable td {
+  padding: 0.4375rem 0.5625rem;
+  vertical-align: top;
+  color: var(--fg-soft);
+  border-bottom: 1px solid var(--line);
+}
+
+.doctable tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+/* 第一列多是路径或条件名，等宽才好对 */
+.doctable td:first-child {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--accent-ink);
+  white-space: nowrap;
+}
+
+/* 文档内的二级小标题：比正文重一点，靠上留白分节，不加装饰线 */
+.docsub {
+  margin: 0.375rem 0 -0.125rem;
+  font-size: 0.781rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--fg);
+}

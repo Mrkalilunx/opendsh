@@ -270,6 +270,7 @@
           <button class="subnav-item" type="button" data-sec="keys" aria-pressed="false">Key</button>
           <button class="subnav-item" type="button" data-sec="logs" aria-pressed="false">日志</button>
           <button class="subnav-item" type="button" data-sec="data" aria-pressed="false">数据</button>
+          <button class="subnav-item" type="button" data-sec="doc" aria-pressed="false">文档</button>
           <button class="subnav-item" type="button" data-sec="debug" id="setdebug" aria-pressed="false" hidden>调试</button>
         </div>
       </nav>
@@ -328,12 +329,12 @@
               <div class="entryrow">
                 <span class="entrypath">/v1</span>
                 <span class="entrywho">通用</span>
-                <span class="entrynote">始终抑制模板工具，只让客户端自己的工具可用</span>
+                <span class="entrynote">始终抑制出站那个 read，只让客户端自己的工具可用</span>
               </div>
               <div class="entryrow">
                 <span class="entrypath">/raw/v1</span>
                 <span class="entrywho">opencode</span>
-                <span class="entrynote">不抑制，模板工具照常能调</span>
+                <span class="entrynote">不抑制，read 照常能调</span>
               </div>
             </div>
 
@@ -665,7 +666,7 @@
           <button class="btn btn-small" type="button" id="chkrun">跑一遍</button>
         </div>
 
-        <p class="field-hint">逐段探服务、数据库、上游模型、上游链路、模板工具和状态目录，哪段不通直接标红</p>
+        <p class="field-hint">逐段探服务、数据库、上游模型、上游链路、出站门禁和状态目录，哪段不通直接标红</p>
         <ul class="chklist" id="chkrows"></ul>
         <p class="panel-state" id="chkstate" role="status"></p>
 
@@ -709,6 +710,24 @@
         </div>
 
         <p class="panel-state" id="dbgstate" role="status"></p>
+      </div>
+
+      <div class="panel setsec" data-sec="doc" hidden>
+        <header class="panel-head">
+          <h2 class="panel-title">文档</h2>
+          <span class="panel-note">本代理与上游说明</span>
+        </header>
+
+        <nav class="docnav" id="docnav" aria-label="文档章节">
+          <button class="docnav-item" type="button" data-doc="about" aria-pressed="true">这个代理</button>
+          <button class="docnav-item" type="button" data-doc="entry" aria-pressed="false">入口</button>
+          <button class="docnav-item" type="button" data-doc="upstream" aria-pressed="false">上游</button>
+          <button class="docnav-item" type="button" data-doc="gate" aria-pressed="false">门禁</button>
+          <button class="docnav-item" type="button" data-doc="quota" aria-pressed="false">额度</button>
+          <button class="docnav-item" type="button" data-doc="use" aria-pressed="false">接入</button>
+        </nav>
+
+        <article class="docbody" id="docbody"></article>
       </div>
     </section>
 

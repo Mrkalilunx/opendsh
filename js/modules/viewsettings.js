@@ -205,7 +205,7 @@ async function save(body) {
 }
 
 // 二级菜单：只显示当前分类，切完记住上次看的分类
-const secs = ['model', 'sampling', 'net', 'codex', 'logs', 'data', 'theme', 'persona', 'session', 'keys', 'debug']
+const secs = ['model', 'sampling', 'net', 'codex', 'logs', 'data', 'doc', 'theme', 'persona', 'session', 'keys', 'debug']
 const seckey = 'dsh:setsec'
 
 // 选中项居中：只滚二级菜单那条横向轨道，绝不让整个页面跟着滚

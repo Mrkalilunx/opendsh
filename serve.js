@@ -174,10 +174,11 @@ async function route(req, res) {
 
   let file = p === '/' ? '/index.html' : p
   // 只放行前端真正用到的这三类，其余一律不对外
-  // 之前按文件名黑名单拦，根目录一有副本（如 ocask-body.json）就照样被 0.0.0.0 吐出去
+  // 之前按文件名黑名单拦，根目录一有副本（如界面模板样本）就照样被 0.0.0.0 吐出去
   if (!frontonly(file)) {
     return text(res, 404, types['.txt'], '404 not found')
   }
+  // 这两种是历史遗留的资源名，可能还散落在别处，直接挡掉
   if (file === '/res/ocask-body.json' || file === '/res/proxies.txt') {
     return text(res, 403, types['.txt'], '403 forbidden')
   }

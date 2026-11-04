@@ -2,16 +2,12 @@
 // 每段各自卡超时，上游卡住也不会让整页干等
 
 import { connect as tlsconnect } from 'node:tls'
-import { writeFile, rm, stat } from 'node:fs/promises'
-import { fileURLToPath } from 'node:url'
+import { writeFile, rm } from 'node:fs/promises'
 import path from 'node:path'
 import * as logstore from './logstore.js'
-import { listmodels, loadtemplate, endpoint } from './upstream.js'
+import { listmodels, basetools, envblock, enforcegate, endpoint } from './upstream.js'
 import { forced, describe as forcednote } from './overrides.js'
 import { statedir as getstatedir } from './paths.js'
-
-const here = path.dirname(fileURLToPath(import.meta.url))
-const tplfile = path.join(here, '..', 'res', 'ocask-body.json')
 
 // 单段最多等这么久，超时按失败算，不让一次自检拖成分把钟
 const capms = 6000
@@ -107,13 +103,60 @@ function checks(port) {
     },
     {
       key: 'tpl',
-      name: '模板工具',
+      name: '出站门禁',
       async detail() {
-        const tpl = await loadtemplate()
-        const n = (tpl.tools || []).length
-        if (n !== 12) throw new Error(`只读到 ${n} 个工具，门禁要求 12 个`)
-        const st = await stat(tplfile)
-        return `${n} 个工具 · 模板 ${size(st.size)}`
+        // 自检要验的是此刻真发出去的东西，直接按出站那套现算，不再读模板文件
+        // 凭据不带 type 字段，客户端没带 read 时才补，客户端自带就一个字不加
+        const one = basetools()
+        if (one.length !== 1) throw new Error(`应为 1 个工具，实际 ${one.length} 个`)
+        if (!one[0].function || one[0].function.name !== 'read') throw new Error('工具名不是 read')
+        if (one[0].type) throw new Error('凭据不该带 type 字段，带了模型会当成可用工具')
+        const env = envblock()
+        if (!/Working directory:/.test(env) || !/Platform:/.test(env)) throw new Error('env 块字段不全')
+        const { body, fixed } = enforcegate({
+          messages: [{ role: 'system', content: env }, { role: 'user', content: 'probe' }],
+          tools: [],
+          stream: false,
+        })
+        const names = (body.tools || []).map((t) => (t.function || {}).name)
+        if (!names.includes('read')) throw new Error('零工具时没补上 read 凭据')
+        // 客户端自己带了 read 时不能再补一份，否则同名两条会打架
+        const own = enforcegate({
+          messages: [{ role: 'system', content: env }, { role: 'user', content: 'probe' }],
+          tools: [{ type: 'function', function: { name: 'read', description: '客户端自带的' } }],
+          stream: true,
+        })
+        const ownnames = (own.body.tools || []).map((t) => (t.function || {}).name)
+        if (ownnames.filter((n) => n === 'read').length !== 1) throw new Error('客户端自带 read 时不该再补一份')
+        // 标题生成形态：system 里写着绝不使用工具，凭据又必须带，两者并存上游回 429
+        // 这条回归点曾经在重构里被整段删掉，线上表现为标题生成全部失败
+        const ttl = enforcegate({
+          messages: [
+            { role: 'system', content: env },
+            { role: 'system', content: 'You are a title generator.\n<rules>\n- Never use tools\n</rules>' },
+            { role: 'user', content: 'probe' },
+          ],
+          tools: [],
+          stream: true,
+        })
+        const kept = ttl.body.messages[1].content
+        if (/never\s+use\s+tools/i.test(kept)) throw new Error('标题生成的冲突句没被剔除，会导致 429')
+        if (!/title generator/.test(kept)) throw new Error('剔除冲突句时误删了其余内容')
+        // 客户端把自己的 env 和标题提示词放在同一条 system 里时，那条就是第 0 条
+        // 早期实现从第 1 条开始扫，正好漏掉这种最常见的形态
+        const inline = enforcegate({
+          messages: [
+            { role: 'system', content: `${env}\nYou are a title generator.\n<rules>\n- Never use tools\n</rules>` },
+            { role: 'user', content: 'probe' },
+          ],
+          tools: [],
+          stream: true,
+        })
+        if (/never\s+use\s+tools/i.test(inline.body.messages[0].content)) {
+          throw new Error('env 与标题提示词同条时没剔除冲突句')
+        }
+        if (body.stream !== true) throw new Error('stream 没被改真')
+        return `env 块 + read 凭据 · 零工具自检补 ${fixed.length} 项 · ${env.length} 字`
       },
     },
     {

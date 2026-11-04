@@ -2,8 +2,8 @@
 
 import { randomBytes } from 'node:crypto'
 import {
-  APIError, BadRequest, defaultmodel, openstream, buildbody, iterchunks,
-  listmodels, loadtemplate, normusage, retryafter,
+  APIError, BadRequest, defaultmodel, openstream, buildbody, basetools, iterchunks,
+  listmodels, normusage, retryafter,
 } from './upstream.js'
 import { getsettings } from './settings.js'
 import * as log from './logbus.js'
@@ -150,30 +150,33 @@ async function translate(req) {
   if (temp >= 0 && params.temperature === undefined) params.temperature = temp
   if (maxtok > 0 && params.max_completion_tokens === undefined) params.max_completion_tokens = maxtok
 
-  // 模板那 12 个必须发出去，否则上游直接报错；抑制模式只影响能否被调用
-  // 客户端 tools 全量追加在这 12 个之后，不截断也不折叠
-  // 客户端工具与模板重名时给客户端那个改名，否则两边会互相顶掉
-  const tpl = await loadtemplate()
-  const base = tpl.tools || []
+  // 上游门禁要的是 tools 里存在一个叫 read 的工具
+  // 客户端自己带了 read 就直接用它的，一个字都不用补，也不用改名
+  // 客户端没带才补一份隐形凭据，那份不带 type 字段，模型认不出它是工具
+  const hasown = Array.isArray(req.tools) && s.tools
+    ? req.tools.some((t) => t && t.function && t.function.name === 'read')
+    : false
+  const base = hasown ? [] : basetools()
   const tplnames = new Set(base.map((t) => (t.function || {}).name))
   let alias = new Map()
   let remap = new Map()
-  // 客户端工具改名后的完整清单，闸门核对必填参数时要用，得提到外层
+  // 客户端工具出站后的完整清单，闸门核对必填参数时要用，得提到外层
   let clientlist = []
 
-  // 抑制模式与客户端有没有带 tools 无关，模板那 12 个一律不许被调用
-  // 客户端自己的同名工具已经改名成 c_xxx 发上去了，所以这里拦原名字不会误伤它
+  // 只有注入的凭据需要抑制：它能过门禁但没有谁能执行
+  // 客户端自己的工具一概不抑制，模型想调就让它调
   // 入口决定抑制与否：默认入口 /v1 始终抑制，直通入口 /raw/v1 始终不抑制
   // 两个入口都会显式带上 __mute，所以这里不看设置，设置只管 /raw/v1 开不开
   const muteon = req.__mute === undefined ? true : req.__mute
   const mute = muteon ? new Set(tplnames) : new Set()
 
   if (Array.isArray(req.tools) && req.tools.length && s.tools) {
+    // 原名直发；taken 里放已占用的名字，避免撞上注入的凭据
     const taken = new Set(tplnames)
     const renamed = aliasnames(req.tools.filter((t) => t && t.function), taken)
     alias = renamed.map
     clientlist = renamed.list
-    // 客户端的工具能顶上被抑制的模板工具时，调用直接改派过去
+    // 客户端的工具能顶上被抑制的凭据时，调用直接改派过去
     remap = buildremap(mute, renamed.list)
     if (remap.size) {
       const pairs = [...remap.entries()].map(([from, one]) => `${from}→${one.name}`).join('、')
@@ -181,8 +184,12 @@ async function translate(req) {
     }
   }
 
-  // tool_choice 里点名客户端工具时，名字也要换成上游那份带前缀的写法
-  // 否则指到一个上游不存在的名字，等于把客户端的指定白扔掉
+  // 客户端一个工具都没带时，出站那个凭据没有谁能执行
+  // 所以无论哪个入口都吞掉，交给后续重问把它掰回文字回答
+  if (!clientlist.length) for (const n of tplnames) mute.add(n)
+
+  // tool_choice 里点名客户端工具时，名字要换成出站那份写法
+  // 只有 astrbot 那对会改名，其余原名一样，换不换都指得到
   if (params.tool_choice && typeof params.tool_choice === 'object') {
     const pick = params.tool_choice.function
     if (pick && typeof pick.name === 'string') {
@@ -213,23 +220,28 @@ async function translate(req) {
   return t
 }
 
-// 客户端工具全量直发，模板那 12 个排在前面
+// 客户端工具全量直发；客户端没带 read 时，注入的隐形凭据排在最后
+// 排在最后是刻意的：它不该出现在模型注意力最集中的位置
 function plan(t) {
-  if (t.clientlist.length) t.params.tools = [...t.base, ...t.clientlist]
+  if (t.clientlist.length) t.params.tools = [...t.clientlist, ...t.base]
+  else if (t.base.length) t.params.tools = [...t.base]
   t.notes = []
-  // 命名约定每轮都一样，避免同一会话里工具名忽然变
-  const naming = namesnote(t.alias.size > 0, [...t.mute])
+  // 命名约定已经不需要了：工具名就是客户端自己的名字，没有前缀要交代
+  const naming = namesnote()
   if (naming) t.notes.push(naming)
-  // 闸门看的是上游那一侧的写法：改名后的 c_xxx 与模板那 12 个原名
-  // 模板名字即使在抑制模式也先放行，交给 mutecalls 去吐提示，不在这里提前拦
+  // 闸门看的是出站那一侧的名字：astrbot 改名后的、加上注入的凭据名
+  // 注入的凭据即使在抑制模式也先放行，交给 mutecalls 去吐提示，不在这里提前拦
   t.allow = new Set([...t.alias.keys(), ...t.tplnames])
-  // 必填参数表按出站那一侧的名字算：改名后的 c_xxx、模板原名
+  // 必填参数表按出站那一侧的名字算
   t.need = needmap([t.base, t.clientlist])
-  // 历史里的 tool_calls 也要跟着换成带前缀的形式，重复调用是幂等的
+  // 历史里的 tool_calls 也要跟着换成出站那份写法，重复调用是幂等的
   rebridge(t.msgs, t.alias)
 }
 
 // 提示语单独拼在消息前面，这样重问时能整段换掉，不用去 msgs 里抠
+// 只放前面一份，绝不在末尾再贴一份：末尾那份会紧随用户消息，
+// 客户端会把整段原样显示给用户，等于把代理的内部提示当成用户提问摆出来
+// 实测凭据去掉 type 之后，光靠前置这一份就已经压住了，不需要后置
 function wire(t) {
   return [...t.notes.map((one) => ({ role: 'system', content: one })), ...t.msgs]
 }
@@ -502,7 +514,7 @@ async function chat(req, res) {
   const open = async () => openstream(await buildbody(wire(t), model, t.params), ac.signal)
 
   const includeusage = Boolean((body.stream_options || {}).include_usage)
-  log.info(`chat model=${model} 入口=${req.__entry || 'main'} stream=${Boolean(body.stream)}${t.mute.size ? ' 抑制模板工具' : ''}`)
+  log.info(`chat model=${model} 入口=${req.__entry || 'main'} stream=${Boolean(body.stream)}${t.mute.size ? ' 抑制 read' : ''}`)
   if (body.stream) return streamchat(res, t, open, model, includeusage)
 
   // 非流式同样要重问：撞到不存在的工具就当作没发生，加一句提醒再问
@@ -559,7 +571,7 @@ function forcelast(t) {
 }
 
 // 出站闸门统一入口：名字白名单、抑制改派、必填参数，最后把改名还原给客户端
-// 顺序不能换：抑制必须排在还原之前，否则客户端的 c_read 会被还原成 read 而误杀
+// 顺序不能换：抑制必须排在还原之前，否则客户端的真名会被还原成被抑制的那个而误杀
 // 参数闸门排在抑制之后：被抑制的模板工具该报不可用，不该报缺参数
 function gating(t, calls) {
   const gated = gatecalls(calls, t.allow)
@@ -1222,7 +1234,7 @@ async function responses(req, res) {
 
   const meta = { id: respid('resp_'), created: Math.floor(Date.now() / 1000), model }
   const env = (status, output, usage) => respenvelope(meta, body, status, output, usage)
-  log.info(`responses model=${model} 入口=${req.__entry || 'main'} stream=${Boolean(body.stream)}${t.mute.size ? ' 抑制模板工具' : ''}`)
+  log.info(`responses model=${model} 入口=${req.__entry || 'main'} stream=${Boolean(body.stream)}${t.mute.size ? ' 抑制 read' : ''}`)
 
   if (body.stream) return streamresponse(res, t, open, env)
 

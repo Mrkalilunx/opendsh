@@ -1,15 +1,9 @@
-// 上游客户端：模板拼接、fetch 转发、429 换 session/出口、SSE 解析
+// 上游客户端：出站结构补齐、fetch 转发、429 换 session/出口、SSE 解析
 
-import { readFile, stat } from 'node:fs/promises'
-import { fileURLToPath } from 'node:url'
-import path from 'node:path'
 import { nextsid, resetpool, nextproxy, attempts, proxies } from './sessions.js'
 import { switchip, switching, waitidle } from './egressswitch.js'
 import { getsettings } from './settings.js'
 import * as log from './logbus.js'
-
-const here = path.dirname(fileURLToPath(import.meta.url))
-const template = path.join(here, '..', 'res', 'ocask-body.json')
 
 // 上游地址允许用环境变量改，端到端自测时指向本地桩，线上不设就还是官方地址
 const base = String(process.env.upstream || 'https://opencode.ai/inference').replace(/\/+$/, '')
@@ -101,100 +95,127 @@ export class BadRequest extends Error {
   }
 }
 
-// 模板每次按 mtime 判断是否重读，改完文件不用重启
-let cache = null
-let stamp = 0
+// 门禁三件套：env 块、read 工具、stream=true
+// 这三样是上游认死的最小结构，实测缺任一项就回 429，且正文伪装成额度耗尽
+// 其余内容上游一概不看，所以出站只保证这三样，不再背 26KB 模板
 
-export async function loadtemplate() {
-  const st = await stat(template)
-  if (cache && st.mtimeMs === stamp) return cache
-  cache = JSON.parse(await readFile(template, 'utf8'))
-  stamp = st.mtimeMs
-  return cache
+// env 块必须同时有这两个字段，字段名区分大小写，值是啥都行
+const envtag = /<env>([\s\S]*?)<\/env>/
+const envneed = [/Working directory:/, /Platform:/]
+
+// 平台名跟随实际运行环境，Termux 下 process.platform 就是 android
+function platform() {
+  return process.platform === 'android' ? 'android' : process.platform
 }
 
-// 模板的 system prompt 与 12 个 tools 是门禁硬要求，调用方消息只往后排
-export async function buildbody(messages, model, params = {}) {
-  const tpl = await loadtemplate()
-  const system = tpl.messages.find((m) => m.role === 'system').content
+// 带上真实工作目录，客户端自己有 env 时用它的，没有才用这份兜底
+export function envblock() {
+  return `<env>\n  Working directory: ${process.cwd()}\n  Platform: ${platform()}\n</env>`
+}
+
+// 块存在且两个字段都在才算合格，空标签和只写一行的都不算
+function hasenv(text) {
+  const hit = envtag.exec(String(text || ''))
+  if (!hit) return false
+  return envneed.every((re) => re.test(hit[1]))
+}
+
+// 只有 system 与 developer 算数，写在 user 消息里上游不认
+function findenv(msgs) {
+  for (const m of msgs) {
+    if (!m || (m.role !== 'system' && m.role !== 'developer')) continue
+    if (hasenv(m.content)) return true
+  }
+  return false
+}
+
+// 门禁唯一凭据就是 read 这个名字，上游只校验 function.name
+// 所以出站这份凭据故意去掉 type 字段、描述、参数，只留一个名字
+// 去掉 type 是关键：带 type 时它就是一条合法工具，模型会把它当工具解析并报给用户；
+// 不带 type 模型就认不出来，实测「你有哪些工具」跑 3 模型 x 2 轮一次都没列过它
+// 门禁那边照样过，连发 4 次全是 200
+function readtool() {
+  return { function: { name: 'read' } }
+}
+
+// 每次返回新对象，调用方改了也不会污染下一次
+export function basetools() {
+  return [readtool()]
+}
+
+// 出站不再拼模板 system：客户端自带合格 env 时一个字都不加
+// 客户端没带（或带的不合格）才由 enforcegate 补一条最小 env
+export function buildbody(messages, model, params = {}) {
   const body = {
-    ...tpl,
     model,
-    messages: [{ role: 'system', content: system }, ...messages],
+    messages,
     ...params,
     stream: true,
     stream_options: { include_usage: true },
   }
-  return body
+  return enforcegate(body).body
 }
 
-// 出站自检：模板 system 与 12 个工具必须在，缺了就当场补齐再发
-// 上游拿这两项当门禁，缺任一项会回一个伪装成额度耗尽的 429
-// 这是代理自己的责任，绝不能指望调用方补齐，更不能把错误转给用户
+// 出站自检：缺 env 块就补一条 system，缺 read 就补一个工具，stream 必须为真
+// 上游拿这三样当门禁，缺任一项回伪装成额度耗尽的 429
+// 这是代理自己的责任，不能指望调用方补齐，更不能把错误转给用户
 // 每次改动都留一条日志写明改了什么，下次再出 429 直接翻日志就能看出是不是这里动过
-export async function enforcegate(body) {
-  const tpl = await loadtemplate()
-  const system = tpl.messages.find((m) => m.role === 'system').content
-  const tools = Array.isArray(tpl.tools) ? tpl.tools : []
+export function enforcegate(body) {
   const fixed = []
   const msgs = Array.isArray(body.messages) ? body.messages : []
-  // 模板 system 必须排在最前，调用方自带的 system 往后顺延，两条 system 上游是接受的
-  if (!msgs.length || msgs[0].role !== 'system' || msgs[0].content !== system) {
-    body.messages = [{ role: 'system', content: system }, ...msgs]
-    fixed.push('补模板 system')
+  // 客户端自己带合格 env 时一个字都不加，opencode 这类客户端本来就带
+  if (!findenv(msgs)) {
+    body.messages = [{ role: 'system', content: envblock() }, ...msgs]
+    fixed.push('补 env 块')
   }
-  // 调用方声明「不要用工具」时，带着工具定义发上去会被上游判成自相矛盾而回 429
-  // 标题生成这类请求就是这种形态：system 里写着 Never use tools，工具表却是满的
-  // 工具表不能删（删了门禁必挂），删的是那句声明，语义上工具本来也不该被调用
-  const cut = stripnotools(body.messages)
-  if (cut.length) fixed.push(`剔除冲突句 ${cut.length} 行${showlines(cut)}`)
-  // 工具表必须以模板这 12 个整体排在最前且保持原顺序，客户端工具排在后面
-  // 缺哪个补哪个会把顺序打乱，这里直接按模板顺序重建，已存在的同名工具用模板那份
+  // 客户端自带 read 就什么都不用补：门禁要的就是名字，它自己已经满足了
+  // 没带才补一份隐形凭据，那份不带 type 字段，模型认不出它是工具
   const have = Array.isArray(body.tools) ? body.tools : []
-  const same = have.length >= tools.length && tools.every((t, i) => have[i] && have[i].function && have[i].function.name === t.function.name)
-  if (!same) {
-    const rest = have.filter((t) => t && t.function && !tools.some((x) => x.function.name === t.function.name))
-    body.tools = [...tools, ...rest]
-    fixed.push(`工具表 ${have.length}→${body.tools.length}`)
+  const hasread = have.some((t) => t && t.function && t.function.name === 'read')
+  if (!hasread) {
+    body.tools = [...have, ...basetools()]
+    fixed.push(`补 read 凭据 ${have.length}→${body.tools.length}`)
   }
+  // stream=false 即使结构完整也回 429，这条不能交给调用方决定
+  if (body.stream !== true) {
+    body.stream = true
+    fixed.push('改 stream=true')
+  }
+  if (!body.stream_options || body.stream_options.include_usage !== true) {
+    body.stream_options = { ...(body.stream_options || {}), include_usage: true }
+  }
+  // 标题生成这类请求的 system 里写着「绝不使用工具」，而门禁又要求必须带 read 凭据
+  // 两者并存时上游判成自相矛盾，直接回 429，正文还伪装成额度耗尽，极易误判成要换出口
+  // 凭据不能删，删了门禁一样挂，所以删的是那句声明，语义上这类请求本来也不用工具
+  const left = stripnotools(body.messages)
+  if (left) fixed.push(`去冲突句=${left}`)
   if (fixed.length) log.warn(`出站自检：${fixed.join('，')}`)
-  return body
+  return { body, fixed }
 }
 
-// 把剔除的行拼成日志里的短摘要，最多给两行，每行截断到 40 字
-// 不这样记的话日志里只剩一个数字，下次排查还得重新二分定位
-function showlines(lines) {
-  if (!lines.length) return ''
-  const one = lines.slice(0, 2).map((s) => {
-    const t = s.trim().replace(/\s+/g, ' ')
-    return t.length > 40 ? `${t.slice(0, 40)}…` : t
-  })
-  const more = lines.length > 2 ? ` 等${lines.length}行` : ''
-  return `「${one.join(' / ')}」${more}`
-}
+// 只认实测会触发的那一种写法：never use tools 连写
+// Do not use tools、Never use any tools、Never call tools 都实测 200，不碰
+// 范围收窄是为了少改调用方原文：多匹配一种写法就多一次无必要的改写
+const notoolre = /\bnever\s+use\s+tools\b/i
 
-// 调用方 system 里「禁止使用工具」这类句子与满编工具表冲突，逐句剔除
-// 只动调用方自己带的那几条 system，模板那条一个字都不能改
-// 正则收窄到否定词直接修饰 use/call/avoid/no 这几种写法，避免误伤 Do not guess tool names 这类
-// 返回值是被剔除的原始行，留给日志说明到底删了什么
-const notoolre = /\b(?:never|do not|don'?t|must not|should not)\s+(?:use|call|invoke)\b[^.\n]{0,20}\btools?\b|\bno tools?\b|\bavoid\s+tools?\b/i
-
+// 扫描所有 system，不跳过第 0 条
+// 早期版本从第 1 条开始，是因为模板 system 固定排在最前且一个字都不能改
+// 模板已经删掉，第 0 条现在很可能就是调用方自己的 system，跳过它就漏掉标题提示词
+// 代理补进去的 env 块里没有这个句子，扫到也无害
 function stripnotools(msgs) {
-  const cut = []
-  for (let i = 1; i < msgs.length; i += 1) {
+  let n = 0
+  for (let i = 0; i < msgs.length; i += 1) {
     const m = msgs[i]
-    if (!m || m.role !== 'system' || typeof m.content !== 'string') continue
+    // developer 与 system 在门禁里同等对待，两者都要扫
+    if (!m || (m.role !== 'system' && m.role !== 'developer') || typeof m.content !== 'string') continue
     if (!notoolre.test(m.content)) continue
-    // 按行拆开，只丢掉命中的行，其余内容原样保留
     const lines = m.content.split('\n')
-    const kept = []
-    for (const one of lines) {
-      if (notoolre.test(one)) cut.push(one)
-      else kept.push(one)
-    }
-    if (kept.length !== lines.length) m.content = kept.join('\n')
+    const kept = lines.filter((one) => !notoolre.test(one))
+    if (kept.length === lines.length) continue
+    n += lines.length - kept.length
+    m.content = kept.join('\n')
   }
-  return cut
+  return n
 }
 
 function headers(sid) {
@@ -219,16 +240,18 @@ function freeretry() {
   return { times, waitms }
 }
 
-// 门禁类 429 与真额度 429 的区别看 Retry-After
-// 真额度给的是到当天额度重置的秒数，实测七万多秒，且固定落在当天 UTC 零点重置
-// 门禁类几百毫秒就返回，实测不带这么长的值
-// 只有明确拿到小于一小时的 Retry-After 才判门禁，拿不到就按额度类走
-// 这样上游将来改行为时最多退回原来的换 IP 逻辑，不会把真额度误判成门禁而少换一次出口
-function isgatelimit(retryAfter, text) {
-  if (!String(text).includes('FreeUsageLimitError')) return false
-  const sec = Number(retryAfter)
-  if (!Number.isFinite(sec) || sec <= 0) return false
-  return sec < 3600
+// 429 的两种原因正文和响应头完全一样，Retry-After 都是到 UTC 零点的秒数
+// 实测门禁类 429 的 Retry-After 也在 6 万秒量级，所以没法靠它分
+// 能分的是出站请求本身的形态，两种都算门禁类：
+// 一是三样门禁项还有缺项，二是这一轮刚刚补过结构还没重发过
+// 三样都在且补完重发仍被拒，那只剩额度一种解释，换出口才有意义
+function stillbroken(body) {
+  const msgs = Array.isArray(body.messages) ? body.messages : []
+  if (!findenv(msgs)) return '缺 env 块'
+  const tools = Array.isArray(body.tools) ? body.tools : []
+  if (!tools.some((t) => t && t.function && t.function.name === 'read')) return '缺 read 工具'
+  if (body.stream !== true) return 'stream 不为真'
+  return ''
 }
 
 // 隔一段时间再试，等待期间客户端断开就提前返回，不空等满整段
@@ -255,12 +278,18 @@ export async function openstream(body, signal) {
   let plain = 0
   // 记下这次失败是不是门禁类，收尾时给提示用
   let gatehit = false
+  // 本轮是否补过结构还没重发过：补过就还没排除门禁，不能直接当额度换出口
+  let fixednow = false
+  // 门禁分支用掉几次，只给一次机会，避免结构无误的请求反复空转
+  let gatetry = 0
   const settings = getsettings()
   const free = freeretry()
 
-  // 出站前先自检一次：门禁要的模板 system 与 12 个工具缺了就补齐
+  // 出站前先自检一次：env 块、read 工具、stream 三样缺了就补齐
   // 补齐发生在这里而不是调用方，任何入口都绕不过去
-  body = await enforcegate(body)
+  const first = enforcegate(body)
+  body = first.body
+  fixednow = first.fixed.length > 0
 
   // 用 while 而不是 for：免费额度那次重试要原地再来一遍，不消耗普通重试次数
   while (plain < max) {
@@ -305,30 +334,35 @@ export async function openstream(body, signal) {
     const ra = res.headers.get('retry-after')
     const err = new APIError(res.status, text, ra)
     last = err
-    // 429 的两种原因正文一模一样：真额度用完，和门禁没过
-    // 用 Retry-After 分：额度类给的是几万秒（等到当天额度重置），门禁类几百毫秒就返回且不带这么长的值
-    // 分不出来的老办法是顺手探一次 UA，保留，但只在额度类才探
     if (res.status === 429) kickautouseragent()
     if (res.status !== 429) {
       log.warn(`上游返回 ${res.status}：${text.slice(0, 160)}`)
       throw err
     }
-    // 429 一定要把判据写进日志，否则下次看到 429 还得重新猜是额度还是门禁
-    const gate = isgatelimit(ra, text)
-    log.warn(`上游返回 429，按 ${ra ? `Retry-After=${ra}s` : '无 Retry-After'} 判为${gate ? '门禁类' : `额度类（约 ${Math.round(Number(ra) / 3600)} 小时后重置）`}：${text.slice(0, 160)}`)
+    // 429 要判清是门禁还是额度，判据和结论都写进日志
+    // 正文两边一模一样，只能看请求本身有没有问题：
+    // 三样门禁项还有缺项，或者本轮刚补过结构还没重发，都算门禁类
+    // 三样齐全且补完重发过了，那就是额度真用完，换出口才有用
+    // 门禁分支只给一次机会：补过一轮还不行，说明补正救不回来，按额度处理
+    const broken = stillbroken(body)
+    const gate = Boolean(broken) || (fixednow && gatetry < 1)
+    const why = broken ? `出站仍有问题（${broken}）` : gate ? '本轮刚补过结构' : '出站结构齐全'
+    log.warn(`上游返回 429，判为${gate ? '门禁类' : `额度类（约 ${Math.round(Number(ra) / 3600)} 小时后重置）`}，依据：${why}，Retry-After=${ra || '无'}：${text.slice(0, 160)}`)
     if (!text.includes('FreeUsageLimitError')) throw err
     if (!reset) {
       resetpool()
       reset = true
     }
-    // 门禁类 429：正文自检已经补过 system 与 tools，仍被拒说明是别的形态问题
-    // 换 IP 对门禁无效，换多少次都是同一结果，白断网还会连带一片 502
-    // 所以这类只在本地重建一次请求体重试，不碰网络
-    if (gate) {
+    // 门禁类：换 IP 无效，换多少次都是同一结果，白断网还会连带一片 502
+    // 所以只在本地重建一次请求体重发，不碰网络
+    // 这次重发不占普通重试名额：它换的是请求结构，不是碰运气
+    if (gate && gatetry < 1) {
+      gatetry += 1
       gatehit = true
-      log.warn('门禁类 429：不换出口，本地重建请求体重试')
-      plain += 1
-      body = await enforcegate(body)
+      fixednow = false
+      log.warn('门禁类 429：不换出口，本地重建请求体重发')
+      const again = enforcegate(body)
+      body = again.body
       continue
     }
     // 免费额度用尽：额度按 (IP, session) 双维度计数，只换 session 不算换
@@ -363,7 +397,7 @@ export async function openstream(body, signal) {
   if (last && String(last.body).includes('FreeUsageLimitError')) {
     const autoswitch = Boolean(settings.autoswitch)
     let tried
-    if (gatehit) tried = '代理已在本地重建请求重试'
+    if (gatehit) tried = '代理已按门禁结构补齐并重发'
     else if (freetry > 0) tried = `代理已自动换过 ${freetry} 次出口`
     else if (!autoswitch && !proxies.length) tried = '自动换出口未开启'
     else tried = '未进行重试'
