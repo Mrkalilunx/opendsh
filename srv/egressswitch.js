@@ -113,3 +113,14 @@ export async function switchip(force = false) {
 export function status() {
   return { busy: Boolean(busy), lastat, coolms }
 }
+
+// 别处正在换出口时网络是断的，调用方该等而不是直接发
+export function switching() {
+  return Boolean(busy)
+}
+
+// 等当前这次切换收尾；没有切换在跑就立刻返回
+// 换出口最多几秒，等到它结束再发，比断网时硬发拿一个连接失败要好
+export function waitidle() {
+  return busy ? busy.catch(() => null) : Promise.resolve(null)
+}

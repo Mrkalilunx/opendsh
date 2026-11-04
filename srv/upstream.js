@@ -4,7 +4,7 @@ import { readFile, stat } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { nextsid, resetpool, nextproxy, attempts, proxies } from './sessions.js'
-import { switchip } from './egressswitch.js'
+import { switchip, switching, waitidle } from './egressswitch.js'
 import { getsettings } from './settings.js'
 import * as log from './logbus.js'
 
@@ -128,6 +128,33 @@ export async function buildbody(messages, model, params = {}) {
   return body
 }
 
+// 出站自检：模板 system 与 12 个工具必须在，缺了就当场补齐再发
+// 上游拿这两项当门禁，缺任一项会回一个伪装成额度耗尽的 429
+// 这是代理自己的责任，绝不能指望调用方补齐，更不能把错误转给用户
+export async function enforcegate(body) {
+  const tpl = await loadtemplate()
+  const system = tpl.messages.find((m) => m.role === 'system').content
+  const tools = Array.isArray(tpl.tools) ? tpl.tools : []
+  const fixed = []
+  const msgs = Array.isArray(body.messages) ? body.messages : []
+  // 模板 system 必须排在最前，调用方自带的 system 往后顺延，两条 system 上游是接受的
+  if (!msgs.length || msgs[0].role !== 'system' || msgs[0].content !== system) {
+    body.messages = [{ role: 'system', content: system }, ...msgs]
+    fixed.push('system')
+  }
+  // 工具表必须以模板这 12 个整体排在最前且保持原顺序，客户端工具排在后面
+  // 缺哪个补哪个会把顺序打乱，这里直接按模板顺序重建，已存在的同名工具用模板那份
+  const have = Array.isArray(body.tools) ? body.tools : []
+  const same = have.length >= tools.length && tools.every((t, i) => have[i] && have[i].function && have[i].function.name === t.function.name)
+  if (!same) {
+    const rest = have.filter((t) => t && t.function && !tools.some((x) => x.function.name === t.function.name))
+    body.tools = [...tools, ...rest]
+    fixed.push(`tools=${body.tools.length}`)
+  }
+  if (fixed.length) log.warn(`出站自检补齐：${fixed.join(' ')}`)
+  return body
+}
+
 function headers(sid) {
   return {
     'user-agent': useragent(),
@@ -148,6 +175,18 @@ function freeretry() {
   const times = Math.max(0, Math.min(30, Math.trunc(Number(s.freeretries))))
   const waitms = Math.max(1000, Math.min(60000, Math.trunc(Number(s.freeretryms)) || 5000))
   return { times, waitms }
+}
+
+// 门禁类 429 与真额度 429 的区别看 Retry-After
+// 真额度给的是到当天额度重置的秒数，实测七万多秒，且固定落在当天 UTC 零点重置
+// 门禁类几百毫秒就返回，实测不带这么长的值
+// 只有明确拿到小于一小时的 Retry-After 才判门禁，拿不到就按额度类走
+// 这样上游将来改行为时最多退回原来的换 IP 逻辑，不会把真额度误判成门禁而少换一次出口
+function isgatelimit(retryAfter, text) {
+  if (!String(text).includes('FreeUsageLimitError')) return false
+  const sec = Number(retryAfter)
+  if (!Number.isFinite(sec) || sec <= 0) return false
+  return sec < 3600
 }
 
 // 隔一段时间再试，等待期间客户端断开就提前返回，不空等满整段
@@ -172,13 +211,22 @@ export async function openstream(body, signal) {
   let freetry = 0
   // 普通重试额度用完就停，免费额度的重试不占它，所以单独放行
   let plain = 0
+  // 记下这次失败是不是门禁类，收尾时给提示用
+  let gatehit = false
   const settings = getsettings()
   const free = freeretry()
+
+  // 出站前先自检一次：门禁要的模板 system 与 12 个工具缺了就补齐
+  // 补齐发生在这里而不是调用方，任何入口都绕不过去
+  body = await enforcegate(body)
 
   // 用 while 而不是 for：免费额度那次重试要原地再来一遍，不消耗普通重试次数
   while (plain < max) {
     // 客户端已经断开就别再发起下一轮了
     if (signal && signal.aborted) break
+    // 别处正在换出口时网络是断的，先等它换完再发，否则必然连不上
+    // 这一等就是原来那些秒级 502 的来源，等完直接发就不必报错
+    if (switching()) await waitidle()
     const sid = nextsid()
     const proxy = settings.proxypool ? nextproxy() : null
     const ctrl = new AbortController()
@@ -215,14 +263,25 @@ export async function openstream(body, signal) {
     const err = new APIError(res.status, text, res.headers.get('retry-after'))
     last = err
     log.warn(`上游返回 ${res.status}：${text.slice(0, 160)}`)
-    // 429 的两种原因正文一模一样：真额度用完，和 UA 形态没过门禁
-    // 分不出来就顺手在后台探一次候选写法，只探一次，探到能用的下次请求自动换
+    // 429 的两种原因正文一模一样：真额度用完，和门禁没过
+    // 用 Retry-After 分：额度类给的是几万秒（等到当天额度重置），门禁类几百毫秒就返回且不带这么长的值
+    // 分不出来的老办法是顺手探一次 UA，保留，但只在额度类才探
     if (res.status === 429) kickautouseragent()
-    // 只有免费额度类 429 值得换出口，门禁 429 换 IP 也没用
     if (res.status !== 429 || !text.includes('FreeUsageLimitError')) throw err
     if (!reset) {
       resetpool()
       reset = true
+    }
+    // 门禁类 429：正文自检已经补过 system 与 tools，仍被拒说明是别的形态问题
+    // 换 IP 对门禁无效，换多少次都是同一结果，白断网还会连带一片 502
+    // 所以这类只在本地重建一次请求体重试，不碰网络
+    const gate = isgatelimit(res.headers.get('retry-after'), text)
+    if (gate) {
+      gatehit = true
+      log.warn('门禁类 429：不换出口，本地重建请求体重试')
+      plain += 1
+      body = await enforcegate(body)
+      continue
     }
     // 免费额度用尽：额度按 (IP, session) 双维度计数，只换 session 不算换
     // 同一个出口上等多久都不会恢复，所以这里的重试一律是「换出口」
@@ -256,16 +315,18 @@ export async function openstream(body, signal) {
   if (last && String(last.body).includes('FreeUsageLimitError')) {
     const autoswitch = Boolean(settings.autoswitch)
     let tried
-    if (freetry > 0) tried = `已换 ${freetry} 次出口仍未恢复`
-    else if (!autoswitch && !proxies.length) tried = '自动换 IP 未开启'
-    else tried = '未开启重试'
-    // 额度按 IP 计数，同一个 IP 上等多久都不会恢复，只能换出口
+    if (gatehit) tried = '代理已在本地重建请求重试'
+    else if (freetry > 0) tried = `代理已自动换过 ${freetry} 次出口`
+    else if (!autoswitch && !proxies.length) tried = '自动换出口未开启'
+    else tried = '未进行重试'
+    // 提示只说明代理这边发生了什么，不要求用户改设置或手动折腾网络
+    // 上游额度按出口 IP 计数，代理自己换出口是本职工作，失败原因写清楚即可
     if (proxies.length) {
-      last.hint = `额度按 IP 计数：代理池 ${proxies.length} 个出口都到限额了，${tried}，换一批新代理后重试`
+      last.hint = `上游免费额度已用尽（按出口 IP 计数），代理池 ${proxies.length} 个出口均已到达限额，${tried}`
     } else if (!autoswitch) {
-      last.hint = `额度按 IP 计数：本机出口已到限额，${tried}，开关一次移动数据或飞行模式换 IP 后重试；也可以在设置里打开「额度耗尽自动换 IP」`
+      last.hint = `上游免费额度已用尽（按出口 IP 计数），${tried}，可在设置里开启「额度耗尽自动换 IP」由代理自行换出口`
     } else {
-      last.hint = `额度按 IP 计数：本机出口已到限额，${tried}，开关一次移动数据或飞行模式换 IP 后重试`
+      last.hint = `上游免费额度已用尽（按出口 IP 计数），${tried} 仍未恢复`
     }
   }
   throw last || new APIError(0, '没有可用的出口')
