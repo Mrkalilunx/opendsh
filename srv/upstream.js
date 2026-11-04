@@ -142,6 +142,11 @@ export async function enforcegate(body) {
     body.messages = [{ role: 'system', content: system }, ...msgs]
     fixed.push('system')
   }
+  // 调用方声明「不要用工具」时，带着工具定义发上去会被上游判成自相矛盾而回 429
+  // 标题生成这类请求就是这种形态：system 里写着 Never use tools，工具表却是满的
+  // 工具表不能删（删了门禁必挂），删的是那句声明，语义上工具本来也不该被调用
+  const left = stripnotools(body.messages)
+  if (left) fixed.push(`去冲突句=${left}`)
   // 工具表必须以模板这 12 个整体排在最前且保持原顺序，客户端工具排在后面
   // 缺哪个补哪个会把顺序打乱，这里直接按模板顺序重建，已存在的同名工具用模板那份
   const have = Array.isArray(body.tools) ? body.tools : []
@@ -153,6 +158,27 @@ export async function enforcegate(body) {
   }
   if (fixed.length) log.warn(`出站自检补齐：${fixed.join(' ')}`)
   return body
+}
+
+// 调用方 system 里「禁止使用工具」这类句子与满编工具表冲突，逐句剔除
+// 只动调用方自己带的那几条 system，模板那条一个字都不能改
+// 正则收窄到否定词直接修饰 use/call/avoid/no 这几种写法，避免误伤 Do not guess tool names 这类
+const notoolre = /\b(?:never|do not|don'?t|must not|should not)\s+(?:use|call|invoke)\b[^.\n]{0,20}\btools?\b|\bno tools?\b|\bavoid\s+tools?\b/i
+
+function stripnotools(msgs) {
+  let n = 0
+  for (let i = 1; i < msgs.length; i += 1) {
+    const m = msgs[i]
+    if (!m || m.role !== 'system' || typeof m.content !== 'string') continue
+    if (!notoolre.test(m.content)) continue
+    // 按行拆开，只丢掉命中的行，其余内容原样保留
+    const lines = m.content.split('\n')
+    const kept = lines.filter((one) => !notoolre.test(one))
+    if (kept.length === lines.length) continue
+    n += lines.length - kept.length
+    m.content = kept.join('\n')
+  }
+  return n
 }
 
 function headers(sid) {
