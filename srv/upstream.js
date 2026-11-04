@@ -131,6 +131,7 @@ export async function buildbody(messages, model, params = {}) {
 // 出站自检：模板 system 与 12 个工具必须在，缺了就当场补齐再发
 // 上游拿这两项当门禁，缺任一项会回一个伪装成额度耗尽的 429
 // 这是代理自己的责任，绝不能指望调用方补齐，更不能把错误转给用户
+// 每次改动都留一条日志写明改了什么，下次再出 429 直接翻日志就能看出是不是这里动过
 export async function enforcegate(body) {
   const tpl = await loadtemplate()
   const system = tpl.messages.find((m) => m.role === 'system').content
@@ -140,13 +141,13 @@ export async function enforcegate(body) {
   // 模板 system 必须排在最前，调用方自带的 system 往后顺延，两条 system 上游是接受的
   if (!msgs.length || msgs[0].role !== 'system' || msgs[0].content !== system) {
     body.messages = [{ role: 'system', content: system }, ...msgs]
-    fixed.push('system')
+    fixed.push('补模板 system')
   }
   // 调用方声明「不要用工具」时，带着工具定义发上去会被上游判成自相矛盾而回 429
   // 标题生成这类请求就是这种形态：system 里写着 Never use tools，工具表却是满的
   // 工具表不能删（删了门禁必挂），删的是那句声明，语义上工具本来也不该被调用
-  const left = stripnotools(body.messages)
-  if (left) fixed.push(`去冲突句=${left}`)
+  const cut = stripnotools(body.messages)
+  if (cut.length) fixed.push(`剔除冲突句 ${cut.length} 行${showlines(cut)}`)
   // 工具表必须以模板这 12 个整体排在最前且保持原顺序，客户端工具排在后面
   // 缺哪个补哪个会把顺序打乱，这里直接按模板顺序重建，已存在的同名工具用模板那份
   const have = Array.isArray(body.tools) ? body.tools : []
@@ -154,31 +155,46 @@ export async function enforcegate(body) {
   if (!same) {
     const rest = have.filter((t) => t && t.function && !tools.some((x) => x.function.name === t.function.name))
     body.tools = [...tools, ...rest]
-    fixed.push(`tools=${body.tools.length}`)
+    fixed.push(`工具表 ${have.length}→${body.tools.length}`)
   }
-  if (fixed.length) log.warn(`出站自检补齐：${fixed.join(' ')}`)
+  if (fixed.length) log.warn(`出站自检：${fixed.join('，')}`)
   return body
+}
+
+// 把剔除的行拼成日志里的短摘要，最多给两行，每行截断到 40 字
+// 不这样记的话日志里只剩一个数字，下次排查还得重新二分定位
+function showlines(lines) {
+  if (!lines.length) return ''
+  const one = lines.slice(0, 2).map((s) => {
+    const t = s.trim().replace(/\s+/g, ' ')
+    return t.length > 40 ? `${t.slice(0, 40)}…` : t
+  })
+  const more = lines.length > 2 ? ` 等${lines.length}行` : ''
+  return `「${one.join(' / ')}」${more}`
 }
 
 // 调用方 system 里「禁止使用工具」这类句子与满编工具表冲突，逐句剔除
 // 只动调用方自己带的那几条 system，模板那条一个字都不能改
 // 正则收窄到否定词直接修饰 use/call/avoid/no 这几种写法，避免误伤 Do not guess tool names 这类
+// 返回值是被剔除的原始行，留给日志说明到底删了什么
 const notoolre = /\b(?:never|do not|don'?t|must not|should not)\s+(?:use|call|invoke)\b[^.\n]{0,20}\btools?\b|\bno tools?\b|\bavoid\s+tools?\b/i
 
 function stripnotools(msgs) {
-  let n = 0
+  const cut = []
   for (let i = 1; i < msgs.length; i += 1) {
     const m = msgs[i]
     if (!m || m.role !== 'system' || typeof m.content !== 'string') continue
     if (!notoolre.test(m.content)) continue
     // 按行拆开，只丢掉命中的行，其余内容原样保留
     const lines = m.content.split('\n')
-    const kept = lines.filter((one) => !notoolre.test(one))
-    if (kept.length === lines.length) continue
-    n += lines.length - kept.length
-    m.content = kept.join('\n')
+    const kept = []
+    for (const one of lines) {
+      if (notoolre.test(one)) cut.push(one)
+      else kept.push(one)
+    }
+    if (kept.length !== lines.length) m.content = kept.join('\n')
   }
-  return n
+  return cut
 }
 
 function headers(sid) {
@@ -286,14 +302,21 @@ export async function openstream(body, signal) {
     if (res.status === 200) return res
 
     const text = await res.text()
-    const err = new APIError(res.status, text, res.headers.get('retry-after'))
+    const ra = res.headers.get('retry-after')
+    const err = new APIError(res.status, text, ra)
     last = err
-    log.warn(`上游返回 ${res.status}：${text.slice(0, 160)}`)
     // 429 的两种原因正文一模一样：真额度用完，和门禁没过
     // 用 Retry-After 分：额度类给的是几万秒（等到当天额度重置），门禁类几百毫秒就返回且不带这么长的值
     // 分不出来的老办法是顺手探一次 UA，保留，但只在额度类才探
     if (res.status === 429) kickautouseragent()
-    if (res.status !== 429 || !text.includes('FreeUsageLimitError')) throw err
+    if (res.status !== 429) {
+      log.warn(`上游返回 ${res.status}：${text.slice(0, 160)}`)
+      throw err
+    }
+    // 429 一定要把判据写进日志，否则下次看到 429 还得重新猜是额度还是门禁
+    const gate = isgatelimit(ra, text)
+    log.warn(`上游返回 429，按 ${ra ? `Retry-After=${ra}s` : '无 Retry-After'} 判为${gate ? '门禁类' : `额度类（约 ${Math.round(Number(ra) / 3600)} 小时后重置）`}：${text.slice(0, 160)}`)
+    if (!text.includes('FreeUsageLimitError')) throw err
     if (!reset) {
       resetpool()
       reset = true
@@ -301,7 +324,6 @@ export async function openstream(body, signal) {
     // 门禁类 429：正文自检已经补过 system 与 tools，仍被拒说明是别的形态问题
     // 换 IP 对门禁无效，换多少次都是同一结果，白断网还会连带一片 502
     // 所以这类只在本地重建一次请求体重试，不碰网络
-    const gate = isgatelimit(res.headers.get('retry-after'), text)
     if (gate) {
       gatehit = true
       log.warn('门禁类 429：不换出口，本地重建请求体重试')
