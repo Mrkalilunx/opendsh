@@ -16,9 +16,9 @@ const recoverms = 8000
 // 轮询间隔：探测不通时是瞬间返回的，间隔要短才追得上网络刚恢复那一瞬
 // 实测 50ms 比 150ms 平均快 0.3 到 0.5 秒，空转成本可以忽略
 const pollms = 50
-// 单次探测超时：网络没通时要尽快放弃好进下一轮
-// 4 秒会让每轮空转都卡满，1.2 秒足够，因为通的时候实测都在 0.7 秒内
-const probeipms = 1200
+// 单次探测超时：ipinfo.io 实测 400 到 1100ms，比 cf trace 慢一截
+// 给到 1.5 秒既不会把通的时候误判成超时，也不会让断网时每轮空转卡太久
+const probeipms = 1500
 
 function run(script, timeout = 20000) {
   return new Promise((resolve) => {
@@ -85,8 +85,8 @@ export async function switchip(force = false) {
       // 网络恢复期间高频轮询，拿到新 IP 立刻收手
       // 探测失败是瞬间返回的，必须自己加间隔，否则几百次空转
       // 切换前就读不到 IP 的话（本来就断网），拿到任意地址就算恢复
-      // 这里只看地址变没变，不比地址族：CF 那个端点是双栈的
-      // Bun 每次走 IPv4 还是 IPv6 不确定，同出口也可能报出另一族
+      // 这里只看地址变没变，同一族内比较才有意义
+      // lookup 已限定只回 IPv4，v4 与 v6 是两条出口路径，混比会把没换当成换了
       // 换出口到底成没成，真正的依据是重试后还收不收 429
       while (Date.now() - t0 < recoverms) {
         const now = await nowip(probeipms, true)
