@@ -1,16 +1,24 @@
-// 工具改名与出站闸门：客户端工具加前缀发上去，调用回来再还原
+// 工具改名与出站闸门：客户端工具原名直发，撞上模板名才加序号避让，调用回来再还原
 // 对客户端来说完全透明：它照样收到自己那套 OpenAI tool_calls
 
-// 客户端工具一律原名直发，不再加任何前缀
-// 以前加 c_ 是为了避开出站那个 read，现在 read 只在客户端自己没有时才注入，
-// 而且注入的那份不带 type 字段，模型根本不认它是工具，所以前缀这层多余了
-// 唯一还需要改名的是 astrbot 那对名字，那是另一条独立规则，与 read 无关
+// 客户端工具一律原名直发，不加前缀
+// 唯一的改名是撞上模板名时加个序号避让，比如客户端自带 read 就发成 read2
+// 改名只在出站那一侧，回程 unalias 还原，客户端始终看到自己的名字
+// astrbot 那对名字是另一条独立规则，与撞名避让无关
 
 // 出站不再有命名约定要交代，工具名就是客户端自己的名字
 // 留个空实现是因为调用点还按「有就拼上」在拼，返回空串自然什么都不加
 export function namesnote() {
   return ''
 }
+
+// 模板那 12 个工具的名字，固定不动，跟出站实际注入几个凭据无关
+// 出站现在只为过门禁注入一个 read，靠它反推名字会让集合只剩一个甚至变空
+// 抑制范围与撞名避让都必须按这份名单算，否则客户端带个 read 就能把抑制整段关掉
+export const tplall = [
+  'edit', 'glob', 'grep', 'question', 'read', 'shell',
+  'skill', 'subagent', 'webfetch', 'websearch', 'write', 'execute',
+]
 
 // 上游免费档按工具名组合判定「这是不是终端 agent」，命中就回 429
 // 报错文案伪装成 FreeUsageLimitError，跟额度、IP、UA、session 全无关
@@ -40,8 +48,8 @@ function escapepair(list) {
   return map
 }
 
-// 客户端工具原名直发，这里只处理 astrbot 那对需要改名的
-// taken 是已经占用的名字：出站注入了 read 就把 read 传进来，避免撞上
+// 客户端工具原名直发，这里只处理 astrbot 那对与撞上模板名的
+// taken 是已经占用的名字：模板那 12 个固定传进来，撞上的客户端工具加序号避让
 export function aliasnames(list, taken) {
   const map = new Map()
   const out = []
@@ -174,141 +182,18 @@ export function needmap(lists) {
   return out
 }
 
-// 模板那 12 个工具必须发出去，否则上游直接报错
-// 但发出去不等于要让它存在，这里把对它们的调用直接吞掉
-// 模板里这几个工具被抑制时，如果客户端正好也有同类工具，就把这次调用改派过去
-// 参数名两边对不上就按表翻译，模型不用白跑一轮，也不会以为整轮没有工具可用
-// 客户端没有同类工具时，退一步用 shell 顶：读文件、找内容都能拼成命令
-const shelllike = /^(shell|shell_run|shellrun|exec|exec_command|run_command|run|bash|sh|terminal)$/
-
-// 拼进 shell 命令前先加引号，空格和特殊字符不会把命令拆坏
-function shquote(text) {
-  return "'" + String(text).replace(/'/g, "'\\''") + "'"
-}
-
-// 读文件没有对等工具时，用 sed 取行、用 ls 看目录
-function readcmd(src) {
-  const file = String(src.path || src.file_path || '')
-  if (!file) return null
-  const one = shquote(file)
-  const offset = Number(src.offset) || 0
-  const limit = Number(src.limit) || 0
-  if (offset > 0) {
-    const end = limit > 0 ? offset + limit - 1 : offset + 199
-    return `sed -n '${offset},${end}p' ${one}`
-  }
-  const cap = limit > 0 ? limit : 300
-  return `if [ -d ${one} ]; then ls -la ${one}; else sed -n '1,${cap}p' ${one}; fi`
-}
-
-// 搜内容没有对等工具时，用 grep 顶上，结果截前 200 行
-function grepecmd(src) {
-  const pattern = String(src.pattern || src.query || '')
-  if (!pattern) return null
-  const dir = String(src.path || '.')
-  const inc = src.include ? `--include=${shquote(src.include)} ` : ''
-  return `grep -rn ${inc}-- ${shquote(pattern)} ${shquote(dir)} | head -n 200`
-}
-
-// 写文件没有对等工具时，用 heredoc 落盘，内容原样，不做转义
-function writecmd(src) {
-  const file = String(src.path || src.file_path || '')
-  const text = src.content ?? src.text
-  if (!file || typeof text !== 'string') return null
-  const one = shquote(file)
-  const dir = shquote(String(file).includes('/') ? String(file).replace(/\/[^/]*$/, '') || '/' : '.')
-  return `mkdir -p ${dir} && cat > ${one} <<'DSH_FILE_END'\n${text}\nDSH_FILE_END`
-}
-
-const remaprules = [
-  {
-    from: 'shell',
-    to: shelllike,
-    args: { command: ['cmd', 'command', 'input'], workdir: ['workdir', 'cwd', 'dir'] },
-  },
-  {
-    from: 'read',
-    to: /^(read|read_file|readfile|view_file|cat|open_file)$/,
-    args: { path: ['path', 'file_path', 'file'], offset: ['offset'], limit: ['limit'] },
-  },
-  { from: 'read', to: shelllike, make: readcmd },
-  {
-    from: 'write',
-    to: /^(write|write_file|writefile|create_file|save_file)$/,
-    args: { path: ['path', 'file_path', 'file'], content: ['content', 'text', 'data'] },
-  },
-  { from: 'write', to: shelllike, make: writecmd },
-  {
-    from: 'grep',
-    to: /^(grep|search|rg|ripgrep)$/,
-    args: { pattern: ['pattern', 'query'], path: ['path', 'dir'] },
-  },
-  { from: 'grep', to: shelllike, make: grepecmd },
-  {
-    from: 'glob',
-    to: /^(glob|find|list_files|ls)$/,
-    args: { pattern: ['pattern', 'glob'], path: ['path', 'dir'] },
-  },
-]
-
-// 按被抑制的凭据名，找客户端里能顶上的那个，并记下它认哪些参数
-// 现在只会对注入的 read 凭据生效：客户端没带 read 时，模型调凭据能改派成真工具
-export function buildremap(mute, tools) {
-  const out = new Map()
-  if (!mute || !mute.size || !Array.isArray(tools)) return out
-  const list = tools.filter((t) => t && t.function && t.function.name)
-  for (const rule of remaprules) {
-    if (!mute.has(rule.from) || out.has(rule.from)) continue
-    // 名字是原名直发的，不再有前缀要剥
-    const hit = list.find((t) => rule.to.test(String(t.function.name)))
-    if (!hit) continue
-    const params = (hit.function.parameters && hit.function.parameters.properties) || {}
-    out.set(rule.from, { name: hit.function.name, props: Object.keys(params), args: rule.args, make: rule.make })
-  }
-  return out
-}
-
-// 参数照表搬过去，关键参数没地方落就放弃改派，宁可照旧吞掉
-function remapcall(call, rule) {
-  const src = parseargs(call.function.arguments)
-  // 参数解不开就没法搬，放弃改派
-  if (!src) return null
-  if (rule.make) {
-    const cmd = rule.make(src, rule.props)
-    if (!cmd) return null
-    // make 出来的是要执行的命令，得塞进客户端认的那个参数名里
-    const key = ['cmd', 'command', 'input'].find((one) => rule.props.includes(one))
-    if (!key) return null
-    const args = { [key]: cmd }
-    const wd = ['workdir', 'cwd', 'dir'].find((one) => rule.props.includes(one))
-    if (wd && src.workdir) args[wd] = src.workdir
-    return { ...call, function: { ...call.function, name: rule.name, arguments: JSON.stringify(args) } }
-  }
-  const out = {}
-  for (const [key, targets] of Object.entries(rule.args || {})) {
-    const value = src[key]
-    if (value === undefined || value === null) continue
-    const dst = targets.find((one) => rule.props.includes(one))
-    if (!dst) return null
-    out[dst] = value
-  }
-  if (!Object.keys(out).length) return null
-  return { ...call, function: { ...call.function, name: rule.name, arguments: JSON.stringify(out) } }
-}
-
-export function mutecalls(calls, mute, remap) {
+// 模板那 12 个工具的调用一律吞掉，一条都不许改派
+// 改派会让「模板工具在本轮不可用」变成「换个名字照跑」：
+// 上游吐 shell 就被翻译成客户端 bash 的命令行执行，等于抑制形同虚设
+// 所以这里只保留吞掉一条路，改派相关实现整段删除
+export function mutecalls(calls, mute) {
   if (!mute || !mute.size || !Array.isArray(calls)) return { calls, dropped: 0, names: [] }
   const kept = []
   const names = []
   for (const call of calls) {
     const name = (call && call.function && call.function.name) || ''
+    // 模板名的调用到此为止，绝不改派成客户端工具：那是同一次调用换个壳继续执行
     if (mute.has(name)) {
-      const rule = remap && remap.get(name)
-      const moved = rule ? remapcall(call, rule) : null
-      if (moved) {
-        kept.push(moved)
-        continue
-      }
       names.push(name)
       continue
     }
@@ -329,8 +214,8 @@ export function mutepush(count, hint, argless) {
   return base + tip + `这是第 ${count} 次，其余工具都正常。`
 }
 
-// 客户端回填历史时，assistant 消息里带的是真名
-// 上游那边这些名字和模板重名，得先换回带前缀的写法
+// 客户端回填历史时，assistant 消息里带的是客户端自己的真名
+// 上游那边这些名字可能被改过（astrbot 那对、撞模板名的），得先换回出站写法
 export function rebridge(msgs, alias) {
   const back = new Map()
   if (!alias || !alias.size) return msgs

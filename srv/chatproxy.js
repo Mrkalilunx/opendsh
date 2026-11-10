@@ -10,7 +10,7 @@ import * as log from './logbus.js'
 import * as reqlog from './reqstore.js'
 import { verifykey } from './apikey.js'
 import { listmap, resolvemodel } from './modelmap.js'
-import { gatecalls, argcalls, needmap, missnote, rebridge, mutecalls, mutepush, aliasnames, unalias, namesnote, buildremap } from './toolbridge.js'
+import { gatecalls, argcalls, needmap, missnote, rebridge, mutecalls, mutepush, aliasnames, unalias, namesnote, tplall } from './toolbridge.js'
 
 // 撞到不存在的工具时最多重问几次，防止模型死磕
 const maxtries = 2
@@ -150,16 +150,11 @@ async function translate(req) {
   if (temp >= 0 && params.temperature === undefined) params.temperature = temp
   if (maxtok > 0 && params.max_completion_tokens === undefined) params.max_completion_tokens = maxtok
 
-  // 上游门禁要的是 tools 里存在一个叫 read 的工具
-  // 客户端自己带了 read 就直接用它的，一个字都不用补，也不用改名
-  // 客户端没带才补一份隐形凭据，那份不带 type 字段，模型认不出它是工具
-  const hasown = Array.isArray(req.tools) && s.tools
-    ? req.tools.some((t) => t && t.function && t.function.name === 'read')
-    : false
-  const base = hasown ? [] : basetools()
-  const tplnames = new Set(base.map((t) => (t.function || {}).name))
+  // 抑制范围与撞名避让都按固定的模板名单算，不按出站实际注入的凭据算
+  // 之前是拿注入凭据反推名单，客户端自带 read 时那份名单会变空，
+  // 抑制集合跟着空，出站白名单也空，等于把 /v1 的抑制整段关掉
+  const tplnames = new Set(tplall)
   let alias = new Map()
-  let remap = new Map()
   // 客户端工具出站后的完整清单，闸门核对必填参数时要用，得提到外层
   let clientlist = []
 
@@ -171,18 +166,18 @@ async function translate(req) {
   const mute = muteon ? new Set(tplnames) : new Set()
 
   if (Array.isArray(req.tools) && req.tools.length && s.tools) {
-    // 原名直发；taken 里放已占用的名字，避免撞上注入的凭据
-    const taken = new Set(tplnames)
+    // 客户端工具与模板名撞名时改个名再发，否则两边会互相顶掉
+    // 改名只在出站那一侧，回程 unalias 会还原成客户端自己的名字
+    // 直通入口不抑制模板名，撞名不需要避让，保持原样透传
+    const taken = muteon ? tplnames : new Set()
     const renamed = aliasnames(req.tools.filter((t) => t && t.function), taken)
     alias = renamed.map
     clientlist = renamed.list
-    // 客户端的工具能顶上被抑制的凭据时，调用直接改派过去
-    remap = buildremap(mute, renamed.list)
-    if (remap.size) {
-      const pairs = [...remap.entries()].map(([from, one]) => `${from}→${one.name}`).join('、')
-      log.info(`工具改派：${pairs}`)
-    }
   }
+
+  // 门禁凭据：出站清单里没有 read 就补一份隐形的，让位改名后基本都要补
+  // 客户端自带的 read 已经被改成别的名字，它照样能被调用，只是不顶门禁那个位
+  const base = clientlist.some((t) => (t.function || {}).name === 'read') ? [] : basetools()
 
   // 客户端一个工具都没带时，出站那个凭据没有谁能执行
   // 所以无论哪个入口都吞掉，交给后续重问把它掰回文字回答
@@ -208,7 +203,6 @@ async function translate(req) {
     params,
     mute,
     alias,
-    remap,
     base,
     tplnames,
     clientlist,
@@ -229,9 +223,11 @@ function plan(t) {
   // 命名约定已经不需要了：工具名就是客户端自己的名字，没有前缀要交代
   const naming = namesnote()
   if (naming) t.notes.push(naming)
-  // 闸门看的是出站那一侧的名字：astrbot 改名后的、加上注入的凭据名
+  // 闸门看的是出站那一侧的名字：客户端工具改名后的全部名字、加上模板名
+  // 之前只放 alias.keys()，那是「改过名的」那几个；没改名的客户端工具一个都不在白名单里，
+  // 于是它们的调用全被当成不存在的名字拦掉，这是 12 个模板名之外的第二个洞
   // 注入的凭据即使在抑制模式也先放行，交给 mutecalls 去吐提示，不在这里提前拦
-  t.allow = new Set([...t.alias.keys(), ...t.tplnames])
+  t.allow = new Set([...t.clientlist.map((one) => one.function.name), ...t.tplnames])
   // 必填参数表按出站那一侧的名字算
   t.need = needmap([t.base, t.clientlist])
   // 历史里的 tool_calls 也要跟着换成出站那份写法，重复调用是幂等的
@@ -348,13 +344,12 @@ function tap(req, res, url, raw) {
     // 请求体不是 JSON 就让它空着，正文照样留档
   }
 
+  // 全文都留：响应可能几百 KB，压缩后入库才几个 KB，截断反而丢掉排查线索
+  // 这里只负责收齐，压缩与上限交给 reqstore 统一处理
   const chunks = []
-  let size = 0
   const keep = (chunk) => {
-    if (!chunk || size >= 32 * 1024) return
-    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
-    chunks.push(buf)
-    size += buf.length
+    if (!chunk) return
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
   }
 
   const write = res.write.bind(res)
@@ -367,7 +362,7 @@ function tap(req, res, url, raw) {
     keep(chunk)
     rec.status = res.statusCode || 0
     rec.ms = Date.now() - rec.at
-    rec.respbody = Buffer.concat(chunks).subarray(0, 32 * 1024).toString('utf8')
+    rec.respbody = Buffer.concat(chunks).toString('utf8')
     // 各处理函数把上游 usage 挂在 res 上，这里统一带走
     rec.usage = res.__usage || null
     reqlog.emit(rec)
@@ -575,7 +570,7 @@ function forcelast(t) {
 // 参数闸门排在抑制之后：被抑制的模板工具该报不可用，不该报缺参数
 function gating(t, calls) {
   const gated = gatecalls(calls, t.allow)
-  const raw = mutecalls(gated.calls, t.mute, t.remap)
+  const raw = mutecalls(gated.calls, t.mute)
   const arged = argcalls(raw.calls, t.need)
   return {
     calls: unalias(arged.calls, t.alias),
@@ -598,7 +593,7 @@ function reask(t, box, picked, said) {
   if (box.attempt < maxtries) {
     box.attempt++
     log.info(`工具抑制：吞掉 ${picked.dropped} 个调用（${picked.names.join(',')}），第 ${box.attempt} 次重申`)
-    const hint = hintfor(t.alias, picked.names, t.remap, picked.invalid, picked.missing)
+    const hint = hintfor(t.alias, picked.names, picked.invalid, picked.missing)
     t.msgs = [...t.msgs, { role: 'system', content: mutepush(box.attempt, hint, picked.missing && picked.missing.length) }]
     return true
   }
@@ -612,7 +607,7 @@ function reask(t, box, picked, said) {
 }
 
 // 被吞掉的恰好是客户端也有同名工具时，告诉模型正确的替代名字
-function hintfor(alias, names, remap, invalid, missing) {
+function hintfor(alias, names, invalid, missing) {
   const bad = new Set(invalid || [])
   const tips = []
   const unknown = []
@@ -630,11 +625,6 @@ function hintfor(alias, names, remap, invalid, missing) {
         continue
       }
       unknown.push(n)
-      continue
-    }
-    const moved = remap && remap.get(n)
-    if (moved) {
-      tips.push(`${n} 可以改用 ${moved.name} 用命令实现`)
       continue
     }
     for (const [up, real] of alias) if (real === n) tips.push(`${n} 应该写成 ${up}`)
