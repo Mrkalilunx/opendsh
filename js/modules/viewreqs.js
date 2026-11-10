@@ -306,11 +306,28 @@ function rendersheet(doc) {
   const body = el('reqbody')
   if (!body) return
   body.innerHTML = ''
+  // 体积按字节算，中文一个字三字节，按字符数会低估到看不出来
+  const bytes = (text) => {
+    const raw = String(text || '')
+    if (!raw) return 0
+    return new TextEncoder().encode(raw).length
+  }
+  // 完整就报体积，不完整才提示截断，两个状态互斥，不叠字
+  // 走去重路径的额外标出来，方便确认这条是不是复用公共上下文存的
+  const sizehint = (text, full, stored, tag) => {
+    const n = bytes(text)
+    if (!n) return ''
+    const shown = `${(n / 1024).toFixed(1)} KB`
+    const bits = [shown]
+    if (full === false) bits.push('已截断')
+    if (tag) bits.push(tag)
+    return bits.join(' · ')
+  }
   // 三段内容错开落下，数据一次填进来时不至于整块硬闪
   const secs = [
     section('请求头', pretty(doc.reqhead)),
-    section('请求体', pretty(doc.reqbody), doc.reqbody && doc.reqbody.length >= 32 * 1024 ? '已截断' : ''),
-    section('响应体', pretty(doc.respbody), doc.respbody && doc.respbody.length >= 32 * 1024 ? '已截断' : ''),
+    section('请求体', pretty(doc.reqbody), sizehint(doc.reqbody, doc.reqfull, doc.reqsize, doc.dedup ? '去重' : '')),
+    section('响应体', pretty(doc.respbody), sizehint(doc.respbody, doc.respfull, doc.respsize, '')),
   ]
   secs.forEach((one, index) => one.style.setProperty('--delay', `${index * 45}ms`))
   body.append(...secs)
