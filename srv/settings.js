@@ -6,7 +6,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const here = path.dirname(fileURLToPath(import.meta.url))
+const selfdir = path.dirname(fileURLToPath(import.meta.url))
+// 编译成单文件后这里是虚拟路径，老设置目录得指回真实仓库
+const here = selfdir.startsWith('/$bunfs') ? (process.env.DSHROOT || process.cwd()) : selfdir
 const root = path.join(os.homedir(), '.local', 'share', 'dsh')
 const file = path.join(root, 'settings.json')
 // 老版本住在仓库里，升级后第一次启动从这里读一次

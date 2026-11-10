@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // 开发服务器：静态文件 + 轮询热重载 + OpenAI 兼容代理，全部在 Bun 上跑
-// 启动：bun serve.js        默认 http://127.0.0.1:25715
+// 启动：bun dshboot.js      默认 http://127.0.0.1:25715
 
 import http from 'node:http'
 import fs from 'node:fs'
@@ -34,7 +34,13 @@ import {
   defaults, describe, getsettings, loadsettings, resetsettings, schema, updatesettings,
 } from './srv/settings.js'
 
-const root = path.dirname(fileURLToPath(import.meta.url))
+// 仓库根目录：源码直接跑时就是脚本所在目录
+// 编译成单文件后 import.meta.url 会变成 /$bunfs/root 这种虚拟路径，静态文件全找不到
+// so: 编译版靠 DSHROOT 指明真实仓库位置，二进制本身放在仓库外也不影响
+const selfdir = path.dirname(fileURLToPath(import.meta.url))
+const root = process.env.DSHROOT
+  ? path.resolve(process.env.DSHROOT)
+  : (selfdir.startsWith('/$bunfs') ? process.cwd() : selfdir)
 const port = Number(process.env.port || process.env.PORT || 25715)
 const host = process.env.host || '0.0.0.0'
 
@@ -572,6 +578,18 @@ async function requestsroute(req, res, url) {
       return text(res, 503, types['.json'], JSON.stringify({ error: err.message }))
     }
   }
+  // 第二遍迁移：把纯 gzip 记录转成整段去重，手动触发，带游标可续
+  if (url.searchParams.get('compact')) {
+    try {
+      const out = await reqstore.compact({
+        after: url.searchParams.get('after'),
+        limit: url.searchParams.get('limit'),
+      })
+      return text(res, 200, types['.json'], JSON.stringify(out))
+    } catch (err) {
+      return text(res, 503, types['.json'], JSON.stringify({ error: err.message }))
+    }
+  }
   if (url.searchParams.get('days')) {
     try {
       return text(res, 200, types['.json'], JSON.stringify({ days: await reqstore.days(url.searchParams.get('days')) }))
@@ -888,12 +906,39 @@ server.listen(port, host, async () => {
 
   await scan()
   setTimeout(poll, 400)
+
+  // 每天重算一次块引用计数，顺手清孤儿块
+  // 启动后先等 5 分钟，避开刚起来时的一波请求
+  setTimeout(() => {
+    reqstore.sweep()
+      .then((n) => {
+        if (n > 0) log.info(`清理无引用块 ${n} 个`)
+      })
+      .catch((err) => log.warn(`块清扫失败：${err.message}`))
+  }, 5 * 60 * 1000).unref()
+  setInterval(() => {
+    reqstore.sweep()
+      .then((n) => {
+        if (n > 0) log.info(`清理无引用块 ${n} 个`)
+      })
+      .catch((err) => log.warn(`块清扫失败：${err.message}`))
+  }, 24 * 60 * 60 * 1000).unref()
 })
 
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, () => {
-    log.info('bye')
+    log.info(`收到 ${sig}，退出`)
     server.close(() => process.exit(0))
     setTimeout(() => process.exit(0), 300).unref()
   })
 }
+
+// 没有这层兜底，任何漏网的异常都会让进程无声消失，事后完全查不出死因
+// so: 之前反复静默死亡，就是缺这两行，连一句遗言都没留下
+process.on('uncaughtException', (err) => {
+  log.error(`未捕获异常，进程将退出：${err && err.stack ? err.stack : String(err)}`)
+  setTimeout(() => process.exit(1), 200)
+})
+process.on('unhandledRejection', (err) => {
+  log.error(`未处理的 Promise 拒绝：${err && err.stack ? err.stack : String(err)}`)
+})

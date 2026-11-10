@@ -3,6 +3,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "bun serve.js"
+    "start": "bun dshboot.js"
   }
 }

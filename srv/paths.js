@@ -8,7 +8,9 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { getsettings } from './settings.js'
 
-const here = path.dirname(fileURLToPath(import.meta.url))
+const selfdir = path.dirname(fileURLToPath(import.meta.url))
+// 编译成单文件后这里是虚拟路径，引导目录得跟着仓库走，否则读不到老设置
+const here = selfdir.startsWith('/$bunfs') ? (process.env.DSHROOT || process.cwd()) : selfdir
 // 引导目录：settings.json 永远住这里，不受设置影响
 const home = path.join(here, '.state')
 // 默认数据根目录

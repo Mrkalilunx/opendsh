@@ -26,10 +26,10 @@
 ```sh
 git clone git@github.com:Mrkalilunx/opendsh.git
 cd opendsh
-bun serve.js
+bun dshboot.js
 ```
 
-打开 `http://127.0.0.1:25715` 即可看到面板。端口在 `serve.js` 顶部改。
+打开 `http://127.0.0.1:25715` 即可看到面板。端口在 `dshboot.js` 顶部改。
 
 后端改动需要重启进程；前端（`js/`、`css/`、`index.html`）由服务端轮询热重载，刷新页面就行。
 
@@ -50,7 +50,7 @@ bun serve.js
 ## 目录结构
 
 ```
-serve.js           HTTP 服务、路由、静态文件与热重载
+dshboot.js         HTTP 服务、路由、静态文件与热重载
 index.html         单页应用外壳
 srv/               后端模块：代理、上游、记录、统计、密钥、进程监控
 js/                前端模块：路由、各视图渲染
