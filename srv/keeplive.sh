@@ -1,22 +1,21 @@
-#!/data/data/com.termux/files/usr/bin/bash
+#!/usr/bin/env bash
 # dsh 守护：前台等子进程退出，记下退出码再拉起
 # 用途：先分清是自杀（自己崩）还是他杀（被信号打死），否则永远查不出死因
 # so: 之前只用 & 丢在后台，退出码全丢了，26 次无声死亡一个线索都没留下
+#
+# 启动方式由外部决定，脚本本身不认识任何具体产物：
+#   DSHSTART="命令"   要守护的完整启动命令，默认 bun dshboot.js
+#   DSHPORT=端口      探活用，默认 25715
+# 想用编译成单文件的形式，自己编译完这样起：
+#   DSHSTART=/你的路径/产物名 DSHROOT="$PWD" bash srv/keeplive.sh
+# so: 二进制叫什么、放哪儿是每台机器自己的事，写进仓库就等于把私有约定强加给别人
 
 cd "$(dirname "$0")/.." || exit 1
 
 LOG="$HOME/.local/share/dsh/serve.log"
 LOGMAX=$((5 * 1024 * 1024))
-PORT=25715
-# 优先用编译好的单文件二进制：它的 cmdline 里只有自身路径
-# 源代码跑法 cmdline 含脚本名，别的会话 pkill -f 撞子串就会被连带打死
-# so: 历史上 dshboot.js 被 pkill -f "boot[.]js" 误杀过多次，改名躲不掉子串重叠
-# so: PREFIX 在 setsid 环境里可能没导出，这里给个硬兜底，别让守护静默降级回源码跑法
-PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
-SVC="$PREFIX/bin/dshsvc"
-if [ ! -x "$SVC" ]; then
-  SVC=""
-fi
+PORT="${DSHPORT:-25715}"
+STARTUP="${DSHSTART:-bun dshboot.js}"
 
 # 日志只留最近 5MB：追加写久了会无限涨，反过来拖慢启动
 if [ -f "$LOG" ] && [ "$(stat -c %s "$LOG" 2>/dev/null || echo 0)" -gt "$LOGMAX" ]; then
@@ -44,17 +43,11 @@ while true; do
     sleep 15
     continue
   fi
-  START=$(date '+%m-%d %H:%M:%S')
-  # 二进制缺失时退回源码跑法，至少还能起来，只是没免疫 pkill
-  if [ -n "$SVC" ]; then
-    echo "[keep] $START 启动 $SVC" >> "$LOG"
-    # -w 等子进程退出并透传退出码，这是唯一能区分他杀与自杀的办法
-    DSHROOT="$PWD" setsid -w "$SVC" >> "$LOG" 2>&1 < /dev/null
-  else
-    echo "[keep] $START 启动 bun dshboot.js（未编译，pkill 不免疫）" >> "$LOG"
-    setsid -w bun dshboot.js >> "$LOG" 2>&1 < /dev/null
-  fi
+  echo "[keep] $(date '+%m-%d %H:%M:%S') 启动 $STARTUP" >> "$LOG"
+  # -w 等子进程退出并透传退出码，这是唯一能区分他杀与自杀的办法
+  # 用 sh -c 包一层，启动命令里带引号、带变量都能原样传下去
+  setsid -w sh -c "$STARTUP" >> "$LOG" 2>&1 < /dev/null
   RC=$?
-  echo "[keep] $(date '+%m-%d %H:%M:%S') 退出码 $RC：$(desc $RC)，2 秒后重启" >> "$LOG"
+  echo "[keep] $(date '+%m-%d %H:%M:%S') 退出码 $RC：$(desc "$RC")，2 秒后重启" >> "$LOG"
   sleep 2
 done
