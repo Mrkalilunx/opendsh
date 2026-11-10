@@ -80,19 +80,31 @@ const chapters = {
     blocks: [
       {
         type: 'p',
-        text: '上游有两个 host 路径都能用，判定规则完全一致，代理默认走第一个。',
+        text: '上游有两个地址，模型目录与门禁判据实测完全一致。两个地址对任何客户端都同等可用，不存在哪个只有特定客户端能走。',
       },
       {
         type: 'table',
-        head: ['地址', '说明'],
+        head: ['地址', '完整 chat 路径', '代理当前'],
         rows: [
-          ['opencode.ai/inference', '代理默认上游，OpenAI 兼容路径是 /openai/v1'],
-          ['opencode.ai/zen/v1', 'opencode 客户端内置的同一个服务，路径直接是 /v1'],
+          ['opencode.ai/inference', '/inference/openai/v1/chat/completions', '默认走这个'],
+          ['opencode.ai/zen/v1', '/zen/v1/chat/completions', '能直接请求，但代理拼不出这个路径'],
         ],
       },
       {
+        type: 'note',
+        text: '代理当前只走 inference，原因是拼路径用固定后缀：chat 补 /openai/v1/chat/completions，模型列表补 /v1/models。把 upstream 设成 opencode.ai/zen，模型列表会拼成 /zen/v1/models 正常返回 80 个模型，但 chat 拼成 /zen/openai/v1/chat/completions，实测 404；设成 opencode.ai/zen/v1 则两边都错。这是代理侧后缀写死造成的，不是上游限制——直接把请求打到 /zen/v1/chat/completions 是通的，实测 200。要支持它只需让 base 认已带 /v1 的写法。',
+      },
+      {
         type: 'p',
-        text: '两边模型列表一致：一共 80 个模型，其中 9 个带 free 后缀，全部支持工具调用与推理，上下文从 20 万到 100 万不等。',
+        text: '两个地址实测一致的部分：模型清单都是 80 个，按 id、上下文长度、价格、能力逐字段比对零差异；门禁六项判据（普通请求带不带 env、带不带凭据、坏工具名，标题形态带不带凭据）两边状态码逐条相同。',
+      },
+      {
+        type: 'note',
+        text: '响应的 id 格式不同：inference 返回 chatcmpl- 开头，zen 返回纯十六进制串。说明前面挂的不是同一套网关，但对外给出的模型目录与校验行为一致。',
+      },
+      {
+        type: 'p',
+        text: '80 个模型里 9 个带 free 后缀，这 9 个都声明了工具调用与推理支持，上下文从 20 万到 104 万不等。',
       },
       {
         type: 'list',
