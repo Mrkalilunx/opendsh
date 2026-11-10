@@ -1,10 +1,10 @@
-// 系统监控：GPU、频率、内存直接读 sysfs 和 proc，CPU 占用与进程走 ad（Shizuku）
-// ad 一次要一秒多，结果短时缓存，页面轮询不会每次都等
+// 系统监控：GPU、频率、内存直接读 sysfs 和 proc，CPU 占用与进程走 Shizuku 远程 shell
+// 远程一次要一秒多，结果短时缓存，页面轮询不会每次都等
 
-import { spawn } from 'node:child_process'
 import { readFile, readdir } from 'node:fs/promises'
 import { connect as tlsconnect } from 'node:tls'
 import * as logstore from './logstore.js'
+import * as adbshell from './adbshell.js'
 import { endpoint } from './upstream.js'
 import { forced } from './overrides.js'
 
@@ -143,7 +143,7 @@ async function services() {
   } catch {
     // 读不到就都当作没在跑，页面显示未知
   }
-  // Shizuku 是别的应用的进程，看不了 cmdline，只能拿 ad 通不通来判断
+  // Shizuku 是别的应用的进程，看不了 cmdline，只能拿远程 shell 通不通来判断
   return [
     ...want.map((it) => ({ key: it.key, name: it.name, pid: found.get(it.key) || 0, run: found.has(it.key) })),
     { key: 'shizuku', name: 'Shizuku', pid: 0, run: false },
@@ -212,32 +212,11 @@ async function dbinfo() {
   }
 }
 
-function runad(script, timeout = 6000) {
-  return new Promise((resolve) => {
-    let child
-    try {
-      child = spawn('ad', ['-c', script], { stdio: ['ignore', 'pipe', 'pipe'] })
-    } catch (err) {
-      resolve({ ok: false, out: '', err: err.message })
-      return
-    }
-    let out = ''
-    let err = ''
-    child.stdout.on('data', (d) => {
-      out += d
-    })
-    child.stderr.on('data', (d) => {
-      err += d
-    })
-    const timer = setTimeout(() => {
-      child.kill('SIGKILL')
-      resolve({ ok: false, out, err: 'timeout' })
-    }, timeout)
-    child.on('close', () => {
-      clearTimeout(timer)
-      resolve({ ok: out.includes('@B'), out, err })
-    })
-  })
+// 判定依据是输出里那两个采样标记都在，不看退出码
+// top 偶尔会返回非零但数据完整，反过来也一样，只有标记齐全才说明两段都采到了
+async function runad(script, timeout = 6000) {
+  const res = await adbshell.run(script, timeout)
+  return { ok: res.out.includes('@B'), out: res.out, err: res.err }
 }
 
 const script = [
@@ -322,7 +301,7 @@ async function device() {
 async function devinfo() {
   const now = Date.now()
   if (cache.data && now - cache.at < ttl) return cache.data
-  // Shizuku 没开时 ad 要等超时，失败也缓存一会儿，别每轮都卡住
+  // Shizuku 没开时远程调用要等超时，失败也缓存一会儿，别每轮都卡住
   if (!cache.data && now - cache.failedat < 10000) return null
   if (cache.pending) return cache.pending
   cache.pending = device()
@@ -353,7 +332,7 @@ export async function snapshot(port) {
     dbinfo(),
   ])
 
-  // 库按真实连接算，Shizuku 按 ad 通不通，上游按探活结果，进程在不在只是参考
+  // 库按真实连接算，Shizuku 按远程调用通不通，上游按探活结果，进程在不在只是参考
   // 调试里的强制开关盖在最外层：模拟某段挂掉或恢复正常，用来验证红绿状态
   const svc = list.map((it) => {
     if (it.key === 'db') return { ...it, run: force('db', db.ok) }

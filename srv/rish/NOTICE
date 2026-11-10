@@ -1,0 +1,7 @@
+本目录下的 rish 与 rish_shizuku.dex 取自 Shizuku。
+
+Shizuku 版权所有 RikkaApps，以 Apache License 2.0 授权，全文见
+https://github.com/RikkaApps/Shizuku/blob/master/LICENSE
+
+rish 相对上游只改了一处：不再写死 RISH_APPLICATION_ID 为 com.termux，
+改为从 Terminal 的数据目录环境变量推导包名，好让改过包名的分支版也能用。

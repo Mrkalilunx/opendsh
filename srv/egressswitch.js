@@ -3,11 +3,10 @@
 // 没有代理池时关开一次移动数据，让运营商重新分配 IP
 // so: 只在额度 429 且设置里开了自动切换时调用，平时不动网络
 
-import { execFile } from 'node:child_process'
 import * as log from './logbus.js'
+import * as adbshell from './adbshell.js'
 import { lookup } from './egressip.js'
 
-const AD = 'ad'
 // 关数据后压一会儿再开：压太短运营商来不及回收会话，拿回来的还是同一个 IP
 // 实测 0.7 秒就够，再长纯属空等
 const holdms = 700
@@ -19,14 +18,6 @@ const pollms = 50
 // 单次探测超时：ipinfo.io 实测 400 到 1100ms，比 cf trace 慢一截
 // 给到 1.5 秒既不会把通的时候误判成超时，也不会让断网时每轮空转卡太久
 const probeipms = 1500
-
-function run(script, timeout = 20000) {
-  return new Promise((resolve) => {
-    execFile(AD, ['-c', script], { timeout }, (err, stdout, stderr) => {
-      resolve({ ok: !err, out: String(stdout || ''), err: String(stderr || err?.message || '') })
-    })
-  })
-}
 
 let busy = null
 let lastat = 0
@@ -55,8 +46,8 @@ export async function switchip(force = false) {
       // 读旧 IP 和关开数据互不依赖，一起发出去，省掉一次串行往返
       // 旧 IP 用完整模式多试几个端点，它是比较基准，不能取空
       const beforep = nowip(3000, false)
-      // 权限自检、查飞行模式、关数据、压一会儿、开数据，全部塞进一次 ad 调用
-      // 每次 ad 往返要 0.4 到 0.7 秒，拆成四五次就是两秒多，纯属白花
+      // 权限自检、查飞行模式、关数据、压一会儿、开数据，全部塞进一次远程调用
+      // 每次远程往返要 0.4 到 0.7 秒，拆成四五次就是两秒多，纯属白花
       // 飞行模式开着时数据是被强制关掉的，先解开再走关开数据这条路
       // 没权限时脚本会卡到超时，所以先在远程侧判掉，立刻返回
       const script = [
@@ -71,13 +62,13 @@ export async function switchip(force = false) {
       ].join('\n')
       log.info('出口切换：关开一次移动数据换 IP')
       const t0 = Date.now()
-      const res = await run(script, 25000)
-      // ad 不传退出码，只看输出里的标记
+      const res = await adbshell.run(script, 25000)
+      // 只认输出里的标记，退出码在 rish 那一层本来也不透传
       if (!res.out.includes('SWITCHED:')) {
         if (res.out.includes('NOPERM')) {
           log.warn('出口切换：没有 adb 权限，无法自动换 IP')
         } else {
-          log.warn(`出口切换：关开数据失败（${res.err.slice(0, 60) || 'ad 超时'}）`)
+          log.warn(`出口切换：关开数据失败（${res.err.slice(0, 60) || '远程超时'}）`)
         }
         return ''
       }
