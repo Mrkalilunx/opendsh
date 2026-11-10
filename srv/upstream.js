@@ -321,9 +321,13 @@ export async function openstream(body, signal) {
     } catch (err) {
       clearTimeout(timer)
       last = new APIError(0, `请求失败: ${err.message}`)
-      log.warn(`上游连接失败：${err.message}`)
-      // 连不上算普通重试，避免一直重连
       plain += 1
+      // 客户端自己断开不是上游故障，不该再烧一次名额
+      if (signal && signal.aborted) break
+      log.warn(`上游连接失败（第 ${plain}/${max} 次）：${err.message}`)
+      // 还有名额就压一下再试：瞬时 DNS 抖动往往几百毫秒后就恢复
+      // 立刻重发容易撞回同一个故障点，等于白烧一次机会
+      if (plain < max) await sleep(400, signal)
       continue
     }
     clearTimeout(timer)

@@ -67,7 +67,9 @@ export function nextproxy() {
 
 export function attempts() {
   const want = Math.max(0, Number(getsettings().retries) || 0)
-  return want > 0 ? want : Math.max(1, proxies.length)
+  // 池空时也要保底两次尝试：网络抖动是常态，一次打不通就放弃太脆
+  // so: 原来池空算出 max(1, 0) = 1，任何瞬时 DNS 抖动都直接变成 502
+  return want > 0 ? want : Math.max(2, proxies.length)
 }
 
 // 给管理页看的池快照，空池时按当前设置先填满
