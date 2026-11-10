@@ -872,15 +872,27 @@ textarea.field-input {
 }
 
 /* 文档页：章节切换在上，正文在下，正文只读不参与表单 */
+/* 章节一律留在同一行：窄屏放不下就横向滑，掉到第二行会把正文整体往下顶 */
+/* so: 原来写 flex-wrap: wrap，六项在手机上必然折成两行 */
 .docnav {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 0.25rem;
   margin-top: 0.75rem;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+.docnav::-webkit-scrollbar {
+  display: none;
 }
 
 .docnav-item {
   font: inherit;
+  /* 不许被压扁：flex 容器默认会缩，缩完文字挤成竖排更难看 */
+  flex: none;
+  white-space: nowrap;
   font-size: 0.72rem;
   font-weight: 700;
   padding: 0.3125rem 0.5625rem;
