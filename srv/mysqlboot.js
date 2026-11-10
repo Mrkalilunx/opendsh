@@ -2,7 +2,7 @@
 // 拉起来最多等一会儿，超时交给上层降级成只进内存，不把主服务拖死
 
 import { spawn } from 'node:child_process'
-import { stat } from 'node:fs/promises'
+import { mkdir, readdir, stat } from 'node:fs/promises'
 import { connect } from 'node:net'
 import path from 'node:path'
 import { datadir as getdatadir, dbconf } from './paths.js'
@@ -32,21 +32,80 @@ export function probe(host = '127.0.0.1', port = 3306, waitms = 800) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
+// 数据目录算不算已经初始化：有 mysql 子目录并且里面有文件就认
+// so: 只看目录存在不够，mariadbd-safe 自己也会建空目录，判成已初始化就永远起不来
+async function ready(datadir) {
+  try {
+    const list = await readdir(path.join(datadir, 'mysql'))
+    return list.length > 0
+  } catch {
+    return false
+  }
+}
+
+// 首次运行：数据目录是空的就地把系统表装上，省掉「先手动跑一遍初始化」这步
+// 不传 --basedir：Termux 的包会把前缀和默认值重复拼一遍，拼出不存在的路径
+// root 走 normal 认证，这样默认的空密码配置能直接从 TCP 连进来
+// so: 默认认证是 unix_socket，用 TCP 连会报 1698，表现和「密码不对」一样难查
+async function install(datadir) {
+  const bin = path.join(prefix, 'bin', 'mariadb-install-db')
+  try {
+    await stat(bin)
+  } catch {
+    console.error(`[mysql] 找不到 ${bin}，无法建库`)
+    return false
+  }
+  await mkdir(datadir, { recursive: true })
+  console.log(`[mysql] 数据目录为空，正在初始化 ${datadir}`)
+  const rc = await new Promise((resolve) => {
+    const child = spawn(
+      bin,
+      ['--no-defaults', `--datadir=${datadir}`, '--auth-root-authentication-method=normal', '--skip-test-db'],
+      { stdio: ['ignore', 'pipe', 'pipe'] },
+    )
+    let err = ''
+    child.stderr.on('data', (d) => {
+      err += d
+    })
+    // 正常输出会刷屏，不往外抛，只留失败时的最后几行
+    child.stdout.on('data', () => {})
+    child.on('error', () => resolve(-1))
+    child.on('close', (code) => {
+      if (code !== 0) console.error(`[mysql] 初始化失败：${err.trim().split('\n').slice(-3).join(' / ')}`)
+      resolve(code === null ? -1 : code)
+    })
+  })
+  if (rc !== 0) return false
+  console.log('[mysql] 初始化完成')
+  return true
+}
+
 async function boot(host, port, waitms) {
   const bin = path.join(prefix, 'bin', 'mariadbd-safe')
   const datadir = getdatadir()
-  // 数据目录不存在就没法起库，提前说清楚，免得干等三十秒
-  try {
-    await stat(datadir)
-  } catch {
-    console.error(`[mysql] 数据目录不存在：${datadir}`)
-    return false
+  // 数据目录没初始化过就先装系统表，否则 mariadbd 起来也会立刻退出
+  if (!(await ready(datadir))) {
+    const ok = await install(datadir)
+    if (!ok) {
+      console.error(`[mysql] 数据目录不可用：${datadir}`)
+      return false
+    }
   }
   try {
-    spawn(bin, [`--datadir=${datadir}`, `--port=${port}`, `--bind-address=${host}`], {
-      detached: true,
-      stdio: 'ignore',
-    }).unref()
+    // socket 与 pid 都按数据目录分开放
+    // so: 默认 socket 是全局固定的 /var/run/mysqld.sock，同机第二个实例会撞车直接 abort
+    //     平时只会跑一个实例，但测试与换端口场景会踩到，分开没有代价
+    spawn(
+      bin,
+      [
+        `--datadir=${datadir}`,
+        `--port=${port}`,
+        `--bind-address=${host}`,
+        `--socket=${path.join(datadir, 'mysqld.sock')}`,
+        `--pid-file=${path.join(datadir, 'mysqld.pid')}`,
+      ],
+      { detached: true, stdio: 'ignore' },
+    ).unref()
   } catch (err) {
     console.error(`[mysql] 拉起失败：${err.message}`)
     return false

@@ -3,6 +3,7 @@
 
 import { SQL } from 'bun'
 import { ensuremysql } from './mysqlboot.js'
+import { ensuredb } from './dbinit.js'
 import { dbconf } from './paths.js'
 import { daykey } from './daykey.js'
 
@@ -25,6 +26,14 @@ async function connect() {
   conf = cfg
   // 库没开就先把 MariaDB 拉起来，端口不通的常见情况是手机重开后没人启动
   await ensuremysql(cfg)
+  // 库还没建就补一个：新机器上装完 MariaDB 只是有了服务端，dsh 这个库并不存在
+  // so: 少了这步，连过去直接报 1049，上层降级成只进内存，记录功能形同关闭
+  try {
+    await ensuredb(cfg)
+  } catch (err) {
+    // 建库失败多半是权限不够，仍旧往下试连，库要是本来就存在就不受影响
+    console.error(`[logstore] 建库失败，继续尝试连接：${err.message}`)
+  }
   const url = `mysql://${cfg.user}:${encodeURIComponent(cfg.password)}@${cfg.host}:${cfg.port}/${cfg.database}`
   const next = new SQL({ url, max: 4, idleTimeout: 30, connectionTimeout: 8 })
   await next`SELECT 1`
